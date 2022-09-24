@@ -80,10 +80,16 @@ func (s *state) plan(ctx context.Context, changes []schema.Change) error {
 	}
 	for _, c := range planned {
 		switch c := c.(type) {
+		case *schema.AddFunction:
+			err = s.addFunction(ctx, c)
 		case *schema.AddTable:
 			err = s.addTable(ctx, c)
+		case *schema.DropFunction:
+			s.dropFunction(c)
 		case *schema.DropTable:
 			s.dropTable(c)
+		case *schema.ModifyFunction:
+			err = s.modifyFunction(ctx, c)
 		case *schema.ModifyTable:
 			err = s.modifyTable(ctx, c)
 		case *schema.RenameTable:
@@ -131,6 +137,21 @@ func (s *state) topLevel(changes []schema.Change) []schema.Change {
 		}
 	}
 	return planned
+}
+
+// addFunction builds and executes the query for creating a table in a schema.
+func (s *state) addFunction(ctx context.Context, add *schema.AddFunction) error {
+	var (
+		b = s.Build(add.F.Definition)
+	)
+
+	s.append(&migrate.Change{
+		Cmd:     b.String(),
+		Source:  add,
+		Comment: fmt.Sprintf("create %q function", add.F.Name),
+		Reverse: s.Build("DROP FUNCTION").Function(add.F).String(),
+	})
+	return nil
 }
 
 // addTable builds and executes the query for creating a table in a schema.
@@ -189,6 +210,20 @@ func (s *state) addTable(ctx context.Context, add *schema.AddTable) error {
 	return nil
 }
 
+// dropFunction builds and executes the query for dropping a table from a schema.
+func (s *state) dropFunction(drop *schema.DropFunction) {
+	b := s.Build("DROP FUNCTION")
+	if sqlx.Has(drop.Extra, &schema.IfExists{}) {
+		b.P("IF EXISTS")
+	}
+	b.Function(drop.F)
+	s.append(&migrate.Change{
+		Cmd:     b.String(),
+		Source:  drop,
+		Comment: fmt.Sprintf("drop %q function", drop.F.Name),
+	})
+}
+
 // dropTable builds and executes the query for dropping a table from a schema.
 func (s *state) dropTable(drop *schema.DropTable) {
 	b := s.Build("DROP TABLE")
@@ -201,6 +236,28 @@ func (s *state) dropTable(drop *schema.DropTable) {
 		Source:  drop,
 		Comment: fmt.Sprintf("drop %q table", drop.T.Name),
 	})
+}
+
+// modifyFunction builds the statements that bring the function into its modified state.
+func (s *state) modifyFunction(ctx context.Context, modify *schema.ModifyFunction) error {
+	for _, change := range modify.Changes {
+		switch change := change.(type) {
+		case *schema.DropFunction:
+			s.dropFunction(change)
+		case *schema.ModifyFunctionDefinition:
+			var (
+				b = s.Build(modify.F.Definition)
+			)
+
+			s.append(&migrate.Change{
+				Cmd:     b.String(),
+				Source:  change,
+				Comment: fmt.Sprintf("create %q function", modify.F.Name),
+				Reverse: s.Build("DROP FUNCTION").Function(modify.F).String(),
+			})
+		}
+	}
+	return nil
 }
 
 // modifyTable builds the statements that bring the table into its modified state.

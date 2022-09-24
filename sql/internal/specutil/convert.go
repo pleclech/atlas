@@ -18,6 +18,7 @@ import (
 
 // List of convert function types.
 type (
+	ConvertFunctionFunc   func(*sqlspec.Function, *schema.Schema) (*schema.Function, error)
 	ConvertTableFunc      func(*sqlspec.Table, *schema.Schema) (*schema.Table, error)
 	ConvertColumnFunc     func(*sqlspec.Column, *schema.Table) (*schema.Column, error)
 	ConvertTypeFunc       func(*sqlspec.Column) (schema.Type, error)
@@ -26,6 +27,7 @@ type (
 	ConvertCheckFunc      func(*sqlspec.Check) (*schema.Check, error)
 	ColumnSpecFunc        func(*schema.Column, *schema.Table) (*sqlspec.Column, error)
 	ColumnTypeSpecFunc    func(schema.Type) (*sqlspec.Column, error)
+	FunctionSpecFunc      func(*schema.Function) (*sqlspec.Function, error)
 	TableSpecFunc         func(*schema.Table) (*sqlspec.Table, error)
 	PrimaryKeySpecFunc    func(*schema.Index) (*sqlspec.PrimaryKey, error)
 	IndexSpecFunc         func(*schema.Index) (*sqlspec.Index, error)
@@ -34,10 +36,23 @@ type (
 )
 
 // Scan populates the Realm from the schemas and table specs.
-func Scan(r *schema.Realm, schemas []*sqlspec.Schema, tables []*sqlspec.Table, convertTable ConvertTableFunc) error {
+func Scan(r *schema.Realm, schemas []*sqlspec.Schema, functions []*sqlspec.Function, convertFunction ConvertFunctionFunc, tables []*sqlspec.Table, convertTable ConvertTableFunc) error {
 	// Build the schemas.
 	for _, schemaSpec := range schemas {
 		sch := &schema.Schema{Name: schemaSpec.Name, Realm: r}
+		for _, functionSpec := range functions {
+			name, err := SchemaName(functionSpec.Schema)
+			if err != nil {
+				return fmt.Errorf("specutil: cannot extract schema name for function %q: %w", functionSpec.Name, err)
+			}
+			if name == schemaSpec.Name {
+				fn, err := convertFunction(functionSpec, sch)
+				if err != nil {
+					return err
+				}
+				sch.Functions = append(sch.Functions, fn)
+			}
+		}
 		for _, tableSpec := range tables {
 			name, err := SchemaName(tableSpec.Schema)
 			if err != nil {
@@ -80,6 +95,21 @@ func findTableSpec(tableSpecs []*sqlspec.Table, schemaName, tableName string) (*
 		}
 	}
 	return nil, fmt.Errorf("table %s.%s not found", schemaName, tableName)
+}
+
+func Function(spec *sqlspec.Function, parent *schema.Schema) (*schema.Function, error) {
+	fn := &schema.Function{
+		Name:       spec.Name,
+		Schema:     parent,
+		Args:       spec.Args,
+		Returns:    spec.Returns,
+		Definition: spec.Definition,
+	}
+
+	if err := convertCommentFromSpec(spec, &fn.Attrs); err != nil {
+		return nil, err
+	}
+	return fn, nil
 }
 
 // Table converts a sqlspec.Table to a schema.Table. Table conversion is done without converting
@@ -281,22 +311,48 @@ func linkForeignKeys(tbl *schema.Table, sch *schema.Schema, table *sqlspec.Table
 }
 
 // FromSchema converts a schema.Schema into sqlspec.Schema and []sqlspec.Table.
-func FromSchema(s *schema.Schema, fn TableSpecFunc) (*sqlspec.Schema, []*sqlspec.Table, error) {
+func FromSchema(s *schema.Schema, ffn FunctionSpecFunc, tfn TableSpecFunc) (*sqlspec.Schema, []*sqlspec.Function, []*sqlspec.Table, error) {
 	spec := &sqlspec.Schema{
 		Name: s.Name,
 	}
+
+	functions := make([]*sqlspec.Function, 0, len(s.Functions))
+	for _, f := range s.Functions {
+		function, err := ffn(f)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if s.Name != "" {
+			function.Schema = SchemaRef(s.Name)
+		}
+		functions = append(functions, function)
+	}
+
 	tables := make([]*sqlspec.Table, 0, len(s.Tables))
 	for _, t := range s.Tables {
-		table, err := fn(t)
+		table, err := tfn(t)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if s.Name != "" {
 			table.Schema = SchemaRef(s.Name)
 		}
 		tables = append(tables, table)
 	}
-	return spec, tables, nil
+
+	return spec, functions, tables, nil
+}
+
+// FromFunction converts a schema.Table to a sqlspec.Table.
+func FromFunction(f *schema.Function) (*sqlspec.Function, error) {
+	spec := &sqlspec.Function{
+		Name:       f.Name,
+		Args:       f.Args,
+		Returns:    f.Returns,
+		Definition: f.Definition,
+	}
+	convertCommentFromSchema(f.Attrs, &spec.Extra.Attrs)
+	return spec, nil
 }
 
 // FromTable converts a schema.Table to a sqlspec.Table.

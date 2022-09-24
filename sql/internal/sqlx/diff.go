@@ -31,6 +31,10 @@ type (
 		// from one state to the other. For example, changing schema collation.
 		SchemaAttrDiff(from, to *schema.Schema) []schema.Change
 
+		// FunctionAttrDiff returns a changeset for migrating function attributes from
+		// one state to the other.
+		FunctionAttrDiff(from, to *schema.Function) ([]schema.Change, error)
+
 		// TableAttrDiff returns a changeset for migrating table attributes from
 		// one state to the other. For example, dropping or adding a `CHECK` constraint.
 		TableAttrDiff(from, to *schema.Table) ([]schema.Change, error)
@@ -91,6 +95,9 @@ func (d *Diff) RealmDiff(from, to *schema.Realm) ([]schema.Change, error) {
 			continue
 		}
 		changes = append(changes, &schema.AddSchema{S: s1})
+		for _, f := range s1.Functions {
+			changes = append(changes, &schema.AddFunction{F: f})
+		}
 		for _, t := range s1.Tables {
 			changes = append(changes, &schema.AddTable{T: t})
 		}
@@ -111,6 +118,31 @@ func (d *Diff) SchemaDiff(from, to *schema.Schema) ([]schema.Change, error) {
 			S:       to,
 			Changes: change,
 		})
+	}
+
+	// Drop or modify functions.
+	for _, f1 := range from.Functions {
+		f2, ok := to.Function(f1.Name, f1.Args)
+		if !ok {
+			changes = append(changes, &schema.DropFunction{F: f1})
+			continue
+		}
+		change, err := d.FunctionDiff(f1, f2)
+		if err != nil {
+			return nil, err
+		}
+		if len(change) > 0 {
+			changes = append(changes, &schema.ModifyFunction{
+				F:       f2,
+				Changes: change,
+			})
+		}
+	}
+	// Add functions.
+	for _, f1 := range to.Functions {
+		if _, ok := from.Function(f1.Name, f1.Args); !ok {
+			changes = append(changes, &schema.AddFunction{F: f1})
+		}
 	}
 
 	// Drop or modify tables.
@@ -137,6 +169,43 @@ func (d *Diff) SchemaDiff(from, to *schema.Schema) ([]schema.Change, error) {
 			changes = append(changes, &schema.AddTable{T: t1})
 		}
 	}
+	return changes, nil
+}
+
+// FunctionDiff implements the schema.FunctionDiffer interface and returns a list of
+// changes that need to be applied in order to move from one state to the other.
+func (d *Diff) FunctionDiff(from, to *schema.Function) ([]schema.Change, error) {
+	if from.Name != to.Name {
+		return nil, fmt.Errorf("mismatched function names: %q != %q", from.Name, to.Name)
+	}
+
+	if from.Args != to.Args {
+		return nil, fmt.Errorf("mismatched function args: %q != %q", from.Args, to.Args)
+	}
+
+	var changes []schema.Change
+
+	// Drop or modify attributes (collations, checks, etc).
+	change, err := d.FunctionAttrDiff(from, to)
+	if err != nil {
+		return nil, err
+	}
+	changes = append(changes, change...)
+
+	if from.Returns != to.Returns {
+		changes = append(changes, &schema.DropFunction{
+			F: from,
+		})
+	}
+
+	if len(changes) > 0 || from.Definition != to.Definition {
+		changes = append(changes, &schema.ModifyFunctionDefinition{
+			From:   from,
+			To:     to,
+			Change: schema.ChangeFunctionDefinition,
+		})
+	}
+
 	return changes, nil
 }
 

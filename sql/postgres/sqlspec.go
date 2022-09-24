@@ -20,9 +20,10 @@ import (
 
 type (
 	doc struct {
-		Tables  []*sqlspec.Table  `spec:"table"`
-		Enums   []*Enum           `spec:"enum"`
-		Schemas []*sqlspec.Schema `spec:"schema"`
+		Functions []*sqlspec.Function `spec:"function"`
+		Tables    []*sqlspec.Table    `spec:"table"`
+		Enums     []*Enum             `spec:"enum"`
+		Schemas   []*sqlspec.Schema   `spec:"schema"`
 	}
 	// Enum holds a specification for an enum, that can be referenced as a column type.
 	Enum struct {
@@ -45,7 +46,7 @@ func evalSpec(p *hclparse.Parser, v any, input map[string]string) error {
 	}
 	switch v := v.(type) {
 	case *schema.Realm:
-		if err := specutil.Scan(v, d.Schemas, d.Tables, convertTable); err != nil {
+		if err := specutil.Scan(v, d.Schemas, d.Functions, convertFunction, d.Tables, convertTable); err != nil {
 			return fmt.Errorf("specutil: failed converting to *schema.Realm: %w", err)
 		}
 		if len(d.Enums) > 0 {
@@ -58,7 +59,7 @@ func evalSpec(p *hclparse.Parser, v any, input map[string]string) error {
 			return fmt.Errorf("specutil: expecting document to contain a single schema, got %d", len(d.Schemas))
 		}
 		r := &schema.Realm{}
-		if err := specutil.Scan(r, d.Schemas, d.Tables, convertTable); err != nil {
+		if err := specutil.Scan(r, d.Schemas, d.Functions, convertFunction, d.Tables, convertTable); err != nil {
 			return err
 		}
 		if err := convertEnums(d.Tables, d.Enums, r); err != nil {
@@ -81,6 +82,7 @@ func MarshalSpec(v any, marshaler schemahcl.Marshaler) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("specutil: failed converting schema to spec: %w", err)
 		}
+		d.Functions = doc.Functions
 		d.Tables = doc.Tables
 		d.Schemas = doc.Schemas
 		d.Enums = doc.Enums
@@ -90,6 +92,7 @@ func MarshalSpec(v any, marshaler schemahcl.Marshaler) ([]byte, error) {
 			if err != nil {
 				return nil, fmt.Errorf("specutil: failed converting schema to spec: %w", err)
 			}
+			d.Functions = append(d.Functions, doc.Functions...)
 			d.Tables = append(d.Tables, doc.Tables...)
 			d.Schemas = append(d.Schemas, doc.Schemas...)
 			d.Enums = append(d.Enums, doc.Enums...)
@@ -127,6 +130,10 @@ var (
 	// of from an hclparse.Parser instance.
 	EvalHCLBytes = specutil.HCLBytesFunc(EvalHCL)
 )
+
+func convertFunction(spec *sqlspec.Function, parent *schema.Schema) (*schema.Function, error) {
+	return specutil.Function(spec, parent)
+}
 
 // convertTable converts a sqlspec.Table to a schema.Table. Table conversion is done without converting
 // ForeignKeySpecs into ForeignKeys, as the target tables do not necessarily exist in the schema
@@ -446,13 +453,14 @@ func enumRef(n string) *schemahcl.Ref {
 
 // schemaSpec converts from a concrete Postgres schema to Atlas specification.
 func schemaSpec(schem *schema.Schema) (*doc, error) {
-	s, tbls, err := specutil.FromSchema(schem, tableSpec)
+	s, funcs, tbls, err := specutil.FromSchema(schem, functionSpec, tableSpec)
 	if err != nil {
 		return nil, err
 	}
 	d := &doc{
-		Tables:  tbls,
-		Schemas: []*sqlspec.Schema{s},
+		Tables:    tbls,
+		Functions: funcs,
+		Schemas:   []*sqlspec.Schema{s},
 	}
 	enums := make(map[string]bool)
 	for _, t := range schem.Tables {
@@ -468,6 +476,11 @@ func schemaSpec(schem *schema.Schema) (*doc, error) {
 		}
 	}
 	return d, nil
+}
+
+// functionSpec converts from a concrete Postgres sqlspec.Function to a schema.Function.
+func functionSpec(function *schema.Function) (*sqlspec.Function, error) {
+	return specutil.FromFunction(function)
 }
 
 // tableSpec converts from a concrete Postgres sqlspec.Table to a schema.Table.

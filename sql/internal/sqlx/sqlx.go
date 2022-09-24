@@ -247,6 +247,28 @@ func (b *Builder) Ident(s string) *Builder {
 	return b
 }
 
+// Table writes the function identifier to the builder, prefixed
+// with the schema name if exists.
+func (b *Builder) Function(f *schema.Function) *Builder {
+	switch {
+	// Custom qualifier.
+	case b.Schema != nil:
+		// Empty means skip prefix.
+		if *b.Schema != "" {
+			b.Ident(*b.Schema)
+			b.rewriteLastByte('.')
+		}
+	// Default schema qualifier.
+	case f.Schema != nil && f.Schema.Name != "":
+		b.Ident(f.Schema.Name)
+		b.rewriteLastByte('.')
+	}
+
+	b.Ident(f.Name).Wrap(func(b *Builder) { b.P(f.Args) })
+
+	return b
+}
+
 // Table writes the table identifier to the builder, prefixed
 // with the schema name if exists.
 func (b *Builder) Table(t *schema.Table) *Builder {

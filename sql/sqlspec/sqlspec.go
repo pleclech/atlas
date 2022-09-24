@@ -79,9 +79,20 @@ type (
 
 	// Type represents a database agnostic column type.
 	Type string
+
+	Function struct {
+		Name       string         `spec:",name"`
+		Qualifier  string         `spec:",qualifier"`
+		Schema     *schemahcl.Ref `spec:"schema"`
+		Args       string         `spec:"args"`
+		Returns    string         `spec:"returns"`
+		Definition string         `spec:"definition"`
+		schemahcl.DefaultExtension
+	}
 )
 
 func init() {
 	schemahcl.Register("table", &Table{})
+	schemahcl.Register("function", &Function{})
 	schemahcl.Register("schema", &Schema{})
 }

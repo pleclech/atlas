@@ -25,6 +25,7 @@ const (
 	urlFlag         = "url"
 	schemaFlag      = "schema"
 	excludeFlag     = "exclude"
+	extensionFlag   = "extension"
 	devURLFlag      = "dev-url"
 	fileFlag        = "file"
 	dsnFlag         = "dsn"

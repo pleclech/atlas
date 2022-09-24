@@ -14,10 +14,11 @@ type (
 
 	// A Schema describes a database schema (i.e. named database).
 	Schema struct {
-		Name   string
-		Realm  *Realm
-		Tables []*Table
-		Attrs  []Attr // Attrs and options.
+		Name      string
+		Realm     *Realm
+		Tables    []*Table
+		Functions []*Function
+		Attrs     []Attr // Attrs and options.
 	}
 
 	// A Table represents a table definition.
@@ -29,6 +30,15 @@ type (
 		PrimaryKey  *Index
 		ForeignKeys []*ForeignKey
 		Attrs       []Attr // Attrs, constraints and options.
+	}
+
+	Function struct {
+		Name       string
+		Schema     *Schema
+		Args       string
+		Returns    string
+		Definition string
+		Attrs      []Attr
 	}
 
 	// A Column represents a column definition.
@@ -90,6 +100,16 @@ func (r *Realm) Schema(name string) (*Schema, bool) {
 	for _, s := range r.Schemas {
 		if s.Name == name {
 			return s, true
+		}
+	}
+	return nil, false
+}
+
+// Function returns the first functiom that matched the given name, args.
+func (s *Schema) Function(name string, args string) (*Function, bool) {
+	for _, f := range s.Functions {
+		if f.Name == name && f.Args == args {
+			return f, true
 		}
 	}
 	return nil, false

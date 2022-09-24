@@ -63,16 +63,34 @@ type (
 		Changes []Change
 	}
 
+	// AddFunction describes a function creation change.
+	AddFunction struct {
+		F     *Function
+		Extra []Clause // Extra clauses and options.
+	}
+
 	// AddTable describes a table creation change.
 	AddTable struct {
 		T     *Table
 		Extra []Clause // Extra clauses and options.
 	}
 
+	// DropFunction describes a function removal change.
+	DropFunction struct {
+		F     *Function
+		Extra []Clause // Extra clauses.
+	}
+
 	// DropTable describes a table removal change.
 	DropTable struct {
 		T     *Table
 		Extra []Clause // Extra clauses.
+	}
+
+	// ModifyTable describes a table modification change.
+	ModifyFunction struct {
+		F       *Function
+		Changes []Change
 	}
 
 	// ModifyTable describes a table modification change.
@@ -94,6 +112,11 @@ type (
 	// DropColumn describes a column removal change.
 	DropColumn struct {
 		C *Column
+	}
+
+	ModifyFunctionDefinition struct {
+		From, To *Function
+		Change   ChangeKind
 	}
 
 	// ModifyColumn describes a change that modifies a column.
@@ -237,6 +260,8 @@ const (
 	ChangeUpdateAction
 	// ChangeDeleteAction describes a change to the foreign-key delete action.
 	ChangeDeleteAction
+
+	ChangeFunctionDefinition
 )
 
 // Is reports whether c is match the given change kind.
@@ -366,30 +391,34 @@ func (c Changes) search(f func(Change) bool) int {
 }
 
 // changes.
-func (*AddAttr) change()          {}
-func (*DropAttr) change()         {}
-func (*ModifyAttr) change()       {}
-func (*AddSchema) change()        {}
-func (*DropSchema) change()       {}
-func (*ModifySchema) change()     {}
-func (*AddTable) change()         {}
-func (*DropTable) change()        {}
-func (*ModifyTable) change()      {}
-func (*RenameTable) change()      {}
-func (*AddIndex) change()         {}
-func (*DropIndex) change()        {}
-func (*ModifyIndex) change()      {}
-func (*RenameIndex) change()      {}
-func (*AddCheck) change()         {}
-func (*DropCheck) change()        {}
-func (*ModifyCheck) change()      {}
-func (*AddColumn) change()        {}
-func (*DropColumn) change()       {}
-func (*ModifyColumn) change()     {}
-func (*RenameColumn) change()     {}
-func (*AddForeignKey) change()    {}
-func (*DropForeignKey) change()   {}
-func (*ModifyForeignKey) change() {}
+func (*AddAttr) change()                  {}
+func (*DropAttr) change()                 {}
+func (*ModifyAttr) change()               {}
+func (*AddSchema) change()                {}
+func (*DropSchema) change()               {}
+func (*ModifySchema) change()             {}
+func (*AddFunction) change()              {}
+func (*AddTable) change()                 {}
+func (*DropFunction) change()             {}
+func (*DropTable) change()                {}
+func (*ModifyFunction) change()           {}
+func (*ModifyTable) change()              {}
+func (*RenameTable) change()              {}
+func (*AddIndex) change()                 {}
+func (*DropIndex) change()                {}
+func (*ModifyIndex) change()              {}
+func (*RenameIndex) change()              {}
+func (*AddCheck) change()                 {}
+func (*DropCheck) change()                {}
+func (*ModifyCheck) change()              {}
+func (*AddColumn) change()                {}
+func (*DropColumn) change()               {}
+func (*ModifyFunctionDefinition) change() {}
+func (*ModifyColumn) change()             {}
+func (*RenameColumn) change()             {}
+func (*AddForeignKey) change()            {}
+func (*DropForeignKey) change()           {}
+func (*ModifyForeignKey) change()         {}
 
 // clauses.
 func (*IfExists) clause()    {}

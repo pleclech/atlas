@@ -767,3 +767,23 @@ func del(attrs *[]Attr, v Attr) {
 		}
 	}
 }
+
+// SetSchema sets the schema (named-database) of the table.
+func (f *Function) SetSchema(s *Schema) *Function {
+	f.Schema = s
+	return f
+}
+
+// AddFunctions adds and links the given tables to the schema.
+func (s *Schema) AddFunctions(functions ...*Function) *Schema {
+	for _, f := range functions {
+		f.SetSchema(s)
+	}
+	s.Functions = append(s.Functions, functions...)
+	return s
+}
+
+func (f *Function) SetComment(v string) *Function {
+	replaceOrAppend(&f.Attrs, &Comment{Text: v})
+	return f
+}

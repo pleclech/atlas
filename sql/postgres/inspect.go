@@ -38,6 +38,9 @@ func (i *inspect) InspectRealm(ctx context.Context, opts *schema.InspectRealmOpt
 	if err := i.inspectTables(ctx, r, nil); err != nil {
 		return nil, err
 	}
+	if err := i.inspectFunctions(ctx, r, nil); err != nil {
+		return nil, err
+	}
 	sqlx.LinkSchemaTables(schemas)
 	return sqlx.ExcludeRealm(r, opts.Exclude)
 }
@@ -62,6 +65,9 @@ func (i *inspect) InspectSchema(ctx context.Context, name string, opts *schema.I
 	r.Attrs = append(r.Attrs, &CType{V: i.ctype})
 	if sqlx.ModeInspectSchema(opts).Is(schema.InspectTables) {
 		if err := i.inspectTables(ctx, r, opts); err != nil {
+			return nil, err
+		}
+		if err := i.inspectFunctions(ctx, r, opts); err != nil {
 			return nil, err
 		}
 		sqlx.LinkSchemaTables(schemas)
@@ -902,6 +908,48 @@ func newEnumType(t string, id int64) *enumType {
 	return e
 }
 
+func (i *inspect) inspectFunctions(ctx context.Context, r *schema.Realm, opts *schema.InspectOptions) error {
+	if err := i.functions(ctx, r, opts); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (i *inspect) functions(ctx context.Context, realm *schema.Realm, opts *schema.InspectOptions) error {
+	var (
+		args  []any
+		query = fmt.Sprintf(functionsQuery, nArgs(0, len(realm.Schemas)))
+	)
+	for _, s := range realm.Schemas {
+		args = append(args, s.Name)
+	}
+	rows, err := i.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tSchema, name, comment, args, returns, definition sql.NullString
+		if err := rows.Scan(&tSchema, &name, &comment, &args, &returns, &definition); err != nil {
+			return fmt.Errorf("scan function information: %w", err)
+		}
+		if !sqlx.ValidString(tSchema) || !sqlx.ValidString(name) {
+			return fmt.Errorf("invalid schema or function name: %q.%q", tSchema.String, name.String)
+		}
+		s, ok := realm.Schema(tSchema.String)
+		if !ok {
+			return fmt.Errorf("schema %q was not found in realm", tSchema.String)
+		}
+
+		f := &schema.Function{Name: name.String, Args: args.String, Returns: returns.String, Definition: definition.String}
+		s.AddFunctions(f)
+		if sqlx.ValidString(comment) {
+			f.SetComment(comment.String)
+		}
+	}
+	return rows.Close()
+}
+
 const (
 	// Query to list runtime parameters.
 	paramsQuery = `SELECT setting FROM pg_settings WHERE name IN ('lc_collate', 'lc_ctype', 'server_version_num', 'crdb_version') ORDER BY name DESC`
@@ -1090,5 +1138,22 @@ WHERE
 	AND COALESCE(c.contype, '') <> 'f'
 ORDER BY
 	table_name, index_name, idx.ord
+`
+)
+
+const (
+	functionsQuery = `
+SELECT n.nspname AS schema
+	,proname AS name
+	,d.description
+	,pg_get_function_identity_arguments(p.oid) AS args
+	,t.typname AS return
+	,pg_get_functiondef(p.oid) as definition
+FROM pg_proc p
+	JOIN pg_type t ON p.prorettype = t.oid
+	LEFT OUTER JOIN pg_description d ON p.oid = d.objoid
+	LEFT OUTER JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE p.prokind = 'f'
+	AND n.nspname in (%s)
 `
 )

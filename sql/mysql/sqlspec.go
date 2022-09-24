@@ -31,7 +31,7 @@ func evalSpec(p *hclparse.Parser, v any, input map[string]string) error {
 	}
 	switch v := v.(type) {
 	case *schema.Realm:
-		err := specutil.Scan(v, d.Schemas, d.Tables, convertTable)
+		err := specutil.Scan(v, d.Schemas, nil, convertFunction, d.Tables, convertTable)
 		if err != nil {
 			return fmt.Errorf("mysql: failed converting to *schema.Realm: %w", err)
 		}
@@ -49,7 +49,7 @@ func evalSpec(p *hclparse.Parser, v any, input map[string]string) error {
 			return fmt.Errorf("mysql: expecting document to contain a single schema, got %d", len(d.Schemas))
 		}
 		var r schema.Realm
-		if err := specutil.Scan(&r, d.Schemas, d.Tables, convertTable); err != nil {
+		if err := specutil.Scan(&r, d.Schemas, nil, convertFunction, d.Tables, convertTable); err != nil {
 			return err
 		}
 		if err := convertCharset(d.Schemas[0], &r.Schemas[0].Attrs); err != nil {
@@ -87,6 +87,14 @@ var (
 	// of from an hclparse.Parser instance.
 	EvalHCLBytes = specutil.HCLBytesFunc(EvalHCL)
 )
+
+func convertFunction(spec *sqlspec.Function, parent *schema.Schema) (*schema.Function, error) {
+	f, err := specutil.Function(spec, parent)
+	if err != nil {
+		return nil, err
+	}
+	return f, err
+}
 
 // convertTable converts a sqlspec.Table to a schema.Table. Table conversion is done without converting
 // ForeignKeySpecs into ForeignKeys, as the target tables do not necessarily exist in the schema
@@ -194,10 +202,10 @@ func convertColumnType(spec *sqlspec.Column) (schema.Type, error) {
 }
 
 // schemaSpec converts from a concrete MySQL schema to Atlas specification.
-func schemaSpec(s *schema.Schema) (*sqlspec.Schema, []*sqlspec.Table, error) {
-	sc, t, err := specutil.FromSchema(s, tableSpec)
+func schemaSpec(s *schema.Schema) (*sqlspec.Schema, []*sqlspec.Function, []*sqlspec.Table, error) {
+	sc, f, t, err := specutil.FromSchema(s, functionSpec, tableSpec)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if c, ok := hasCharset(s.Attrs, nil); ok {
 		sc.Extra.Attrs = append(sc.Extra.Attrs, specutil.StrAttr("charset", c))
@@ -205,7 +213,14 @@ func schemaSpec(s *schema.Schema) (*sqlspec.Schema, []*sqlspec.Table, error) {
 	if c, ok := hasCollate(s.Attrs, nil); ok {
 		sc.Extra.Attrs = append(sc.Extra.Attrs, specutil.StrAttr("collate", c))
 	}
-	return sc, t, nil
+	return sc, f, t, nil
+}
+
+// functionSpec converts from a concrete SQLite sqlspec.Table to a schema.Table.
+func functionSpec(fn *schema.Function) (*sqlspec.Function, error) {
+	return specutil.FromFunction(
+		fn,
+	)
 }
 
 // tableSpec converts from a concrete MySQL sqlspec.Table to a schema.Table.
