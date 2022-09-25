@@ -103,6 +103,7 @@ func Function(spec *sqlspec.Function, parent *schema.Schema) (*schema.Function, 
 		Schema:     parent,
 		Args:       spec.Args,
 		Returns:    spec.Returns,
+		Language:   spec.Language,
 		Definition: spec.Definition,
 	}
 
@@ -349,6 +350,7 @@ func FromFunction(f *schema.Function) (*sqlspec.Function, error) {
 		Name:       f.Name,
 		Args:       f.Args,
 		Returns:    f.Returns,
+		Language:   f.Language,
 		Definition: f.Definition,
 	}
 	convertCommentFromSchema(f.Attrs, &spec.Extra.Attrs)

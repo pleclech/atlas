@@ -269,6 +269,16 @@ func (b *Builder) Function(f *schema.Function) *Builder {
 	return b
 }
 
+func (b *Builder) FunctionDefinition(f *schema.Function) *Builder {
+	b.WriteString("\n RETURNS ")
+	b.WriteString(f.Returns)
+	b.WriteString("\n LANGUAGE ")
+	b.WriteString(f.Language)
+	b.WriteString("\n ")
+	b.WriteString(f.Definition)
+	return b
+}
+
 // Table writes the table identifier to the builder, prefixed
 // with the schema name if exists.
 func (b *Builder) Table(t *schema.Table) *Builder {

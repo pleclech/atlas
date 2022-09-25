@@ -142,7 +142,7 @@ func (s *state) topLevel(changes []schema.Change) []schema.Change {
 // addFunction builds and executes the query for creating a table in a schema.
 func (s *state) addFunction(ctx context.Context, add *schema.AddFunction) error {
 	var (
-		b = s.Build(add.F.Definition)
+		b = s.Build("CREATE FUNCTION ").Function(add.F).FunctionDefinition(add.F)
 	)
 
 	s.append(&migrate.Change{
@@ -246,14 +246,13 @@ func (s *state) modifyFunction(ctx context.Context, modify *schema.ModifyFunctio
 			s.dropFunction(change)
 		case *schema.ModifyFunctionDefinition:
 			var (
-				b = s.Build(modify.F.Definition)
+				b = s.Build("CREATE OR REPLACE FUNCTION").Function(modify.F).FunctionDefinition(modify.F)
 			)
 
 			s.append(&migrate.Change{
 				Cmd:     b.String(),
 				Source:  change,
 				Comment: fmt.Sprintf("create %q function", modify.F.Name),
-				Reverse: s.Build("DROP FUNCTION").Function(modify.F).String(),
 			})
 		}
 	}

@@ -37,6 +37,7 @@ type (
 		Schema     *Schema
 		Args       string
 		Returns    string
+		Language   string
 		Definition string
 		Attrs      []Attr
 	}

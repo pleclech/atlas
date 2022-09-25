@@ -929,8 +929,8 @@ func (i *inspect) functions(ctx context.Context, realm *schema.Realm, opts *sche
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var tSchema, name, comment, args, returns, definition sql.NullString
-		if err := rows.Scan(&tSchema, &name, &comment, &args, &returns, &definition); err != nil {
+		var tSchema, name, comment, args, returns, language, definition sql.NullString
+		if err := rows.Scan(&tSchema, &name, &comment, &args, &returns, &language, &definition); err != nil {
 			return fmt.Errorf("scan function information: %w", err)
 		}
 		if !sqlx.ValidString(tSchema) || !sqlx.ValidString(name) {
@@ -941,7 +941,16 @@ func (i *inspect) functions(ctx context.Context, realm *schema.Realm, opts *sche
 			return fmt.Errorf("schema %q was not found in realm", tSchema.String)
 		}
 
-		f := &schema.Function{Name: name.String, Args: args.String, Returns: returns.String, Definition: definition.String}
+		def := definition.String
+		lang := "LANGUAGE " + language.String
+		langIndex := strings.Index(def, lang)
+		if langIndex < 0 {
+			return fmt.Errorf("can't find language for function %q.%q", tSchema.String, name.String)
+		}
+
+		def = strings.Trim(def[langIndex+len(lang):], "\n ")
+
+		f := &schema.Function{Name: name.String, Args: args.String, Returns: returns.String, Language: language.String, Definition: def}
 		s.AddFunctions(f)
 		if sqlx.ValidString(comment) {
 			f.SetComment(comment.String)
@@ -1147,11 +1156,13 @@ SELECT n.nspname AS schema
 	,proname AS name
 	,d.description
 	,pg_get_function_identity_arguments(p.oid) AS args
-	,t.typname AS return
+	,pg_get_function_result(p.oid) AS return
+	,l.lanname as language
 	,pg_get_functiondef(p.oid) as definition
 FROM pg_proc p
 	JOIN pg_type t ON p.prorettype = t.oid
 	LEFT OUTER JOIN pg_description d ON p.oid = d.objoid
+	LEFT OUTER JOIN pg_language l on p.prolang = l.oid
 	LEFT OUTER JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.prokind = 'f'
 	AND n.nspname in (%s)

@@ -61,6 +61,15 @@ func (d *DevDriver) NormalizeRealm(ctx context.Context, r *schema.Realm) (nr *sc
 		st := schema.New(dev).AddAttrs(s.Attrs...)
 		changes = append(changes, &schema.AddSchema{S: st})
 		reverse = append(reverse, &schema.DropSchema{S: st, Extra: append(d.DropClause, &schema.IfExists{})})
+
+		for _, f := range s.Functions {
+			// If objects are not strongly connected.
+			if f.Schema != s {
+				f.Schema = s
+			}
+			changes = append(changes, &schema.AddFunction{F: f})
+		}
+
 		for _, t := range s.Tables {
 			// If objects are not strongly connected.
 			if t.Schema != s {
