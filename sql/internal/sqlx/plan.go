@@ -49,12 +49,26 @@ func DetachCycles(changes []schema.Change) ([]schema.Change, error) {
 	if err != nil {
 		return nil, err
 	}
-	planned := make([]schema.Change, len(changes))
-	copy(planned, changes)
+
+	var (
+		first   []schema.Change
+		planned []schema.Change
+		last    []schema.Change
+	)
+	for _, change := range changes {
+		switch change.(type) {
+		case *schema.AddFunction, *schema.DropFunction, *schema.ModifyFunction:
+			first = append(first, change)
+		case *schema.AddTrigger, *schema.DropTrigger, *schema.ModifyTrigger:
+			last = append(last, change)
+		default:
+			planned = append(planned, change)
+		}
+	}
 	sort.Slice(planned, func(i, j int) bool {
 		return sorted[table(planned[i])] < sorted[table(planned[j])]
 	})
-	return planned, nil
+	return append(append(first, planned...), last...), nil
 }
 
 // detachReferences detaches all table references.
@@ -235,6 +249,12 @@ func table(change schema.Change) (t string) {
 		t = change.T.Name
 	case *schema.ModifyTable:
 		t = change.T.Name
+	case *schema.AddTrigger:
+		t = change.TG.Table.Name
+	case *schema.DropTrigger:
+		t = change.TG.Table.Name
+	case *schema.ModifyTrigger:
+		t = change.TG.Table.Name
 	}
 	return
 }
