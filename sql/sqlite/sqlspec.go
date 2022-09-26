@@ -26,7 +26,7 @@ func evalSpec(p *hclparse.Parser, v any, input map[string]string) error {
 	}
 	switch v := v.(type) {
 	case *schema.Realm:
-		err := specutil.Scan(v, d.Schemas, nil, convertFunction, d.Tables, convertTable)
+		err := specutil.Scan(v, d.Schemas, nil, convertFunction, d.Tables, convertTable, nil, convertTrigger)
 		if err != nil {
 			return fmt.Errorf("specutil: failed converting to *schema.Realm: %w", err)
 		}
@@ -35,7 +35,7 @@ func evalSpec(p *hclparse.Parser, v any, input map[string]string) error {
 			return fmt.Errorf("specutil: expecting document to contain a single schema, got %d", len(d.Schemas))
 		}
 		var r schema.Realm
-		if err := specutil.Scan(&r, d.Schemas, nil, convertFunction, d.Tables, convertTable); err != nil {
+		if err := specutil.Scan(&r, d.Schemas, nil, convertFunction, d.Tables, convertTable, nil, convertTrigger); err != nil {
 			return err
 		}
 		r.Schemas[0].Realm = nil
@@ -53,6 +53,10 @@ func MarshalSpec(v any, marshaler schemahcl.Marshaler) ([]byte, error) {
 
 func convertFunction(spec *sqlspec.Function, parent *schema.Schema) (*schema.Function, error) {
 	return specutil.Function(spec, parent)
+}
+
+func convertTrigger(spec *sqlspec.Trigger, parent *schema.Table) (*schema.Trigger, error) {
+	return specutil.Trigger(spec, parent)
 }
 
 // convertTable converts a sqlspec.Table to a schema.Table. Table conversion is done without converting
@@ -105,8 +109,8 @@ func convertColumnType(spec *sqlspec.Column) (schema.Type, error) {
 }
 
 // schemaSpec converts from a concrete SQLite schema to Atlas specification.
-func schemaSpec(schem *schema.Schema) (*sqlspec.Schema, []*sqlspec.Function, []*sqlspec.Table, error) {
-	return specutil.FromSchema(schem, functionSpec, tableSpec)
+func schemaSpec(schem *schema.Schema) (*sqlspec.Schema, []*sqlspec.Function, []*sqlspec.Table, []*sqlspec.Trigger, error) {
+	return specutil.FromSchema(schem, functionSpec, tableSpec, triggerSpec)
 }
 
 // functionSpec converts from a concrete SQLite sqlspec.Table to a schema.Table.
@@ -114,6 +118,11 @@ func functionSpec(fn *schema.Function) (*sqlspec.Function, error) {
 	return specutil.FromFunction(
 		fn,
 	)
+}
+
+// triggerSpec converts from a concrete SQLite sqlspec.Trigger to a schema.Trigger.
+func triggerSpec(tg *schema.Trigger) (*sqlspec.Trigger, error) {
+	return specutil.FromTrigger(tg)
 }
 
 // tableSpec converts from a concrete SQLite sqlspec.Table to a schema.Table.

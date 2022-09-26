@@ -90,30 +90,33 @@ func ListAttr(k string, litValues ...string) *schemahcl.Attr {
 type doc struct {
 	Functions []*sqlspec.Function `spec:"function"`
 	Tables    []*sqlspec.Table    `spec:"table"`
+	Triggers  []*sqlspec.Trigger  `spec:"trigger"`
 	Schemas   []*sqlspec.Schema   `spec:"schema"`
 }
 
 // Marshal marshals v into an Atlas DDL document using a schemahcl.Marshaler. Marshal uses the given
 // schemaSpec function to convert a *schema.Schema into *sqlspec.Schema and []*sqlspec.Table.
-func Marshal(v any, marshaler schemahcl.Marshaler, schemaSpec func(schem *schema.Schema) (*sqlspec.Schema, []*sqlspec.Function, []*sqlspec.Table, error)) ([]byte, error) {
+func Marshal(v any, marshaler schemahcl.Marshaler, schemaSpec func(schem *schema.Schema) (*sqlspec.Schema, []*sqlspec.Function, []*sqlspec.Table, []*sqlspec.Trigger, error)) ([]byte, error) {
 	d := &doc{}
 	switch s := v.(type) {
 	case *schema.Schema:
-		spec, functions, tables, err := schemaSpec(s)
+		spec, functions, tables, triggers, err := schemaSpec(s)
 		if err != nil {
 			return nil, fmt.Errorf("specutil: failed converting schema to spec: %w", err)
 		}
 		d.Functions = functions
 		d.Tables = tables
+		d.Triggers = triggers
 		d.Schemas = []*sqlspec.Schema{spec}
 	case *schema.Realm:
 		for _, s := range s.Schemas {
-			spec, functions, tables, err := schemaSpec(s)
+			spec, functions, tables, triggers, err := schemaSpec(s)
 			if err != nil {
 				return nil, fmt.Errorf("specutil: failed converting schema to spec: %w", err)
 			}
 			d.Functions = append(d.Functions, functions...)
 			d.Tables = append(d.Tables, tables...)
+			d.Triggers = append(d.Triggers, triggers...)
 			d.Schemas = append(d.Schemas, spec)
 		}
 		if err := QualifyDuplicates(d.Tables); err != nil {

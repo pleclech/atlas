@@ -787,3 +787,8 @@ func (f *Function) SetComment(v string) *Function {
 	replaceOrAppend(&f.Attrs, &Comment{Text: v})
 	return f
 }
+
+func (tg *Trigger) SetComment(v string) *Trigger {
+	replaceOrAppend(&tg.Attrs, &Comment{Text: v})
+	return tg
+}

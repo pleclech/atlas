@@ -26,8 +26,17 @@ func (d *diff) SchemaAttrDiff(_, _ *schema.Schema) []schema.Change {
 	return nil
 }
 
-// TableAttrDiff returns a changeset for migrating table attributes from one state to the other.
+// FunctionAttrDiff returns a changeset for migrating function attributes from one state to the other.
 func (d *diff) FunctionAttrDiff(from, to *schema.Function) ([]schema.Change, error) {
+	var changes []schema.Change
+	if change := sqlx.CommentDiff(from.Attrs, to.Attrs); change != nil {
+		changes = append(changes, change)
+	}
+	return changes, nil
+}
+
+// TriggerAttrDiff returns a changeset for migrating trigger attributes from one state to the other.
+func (d *diff) TriggerAttrDiff(from, to *schema.Trigger) ([]schema.Change, error) {
 	var changes []schema.Change
 	if change := sqlx.CommentDiff(from.Attrs, to.Attrs); change != nil {
 		changes = append(changes, change)

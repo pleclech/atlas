@@ -18,6 +18,7 @@ type (
 		Realm     *Realm
 		Tables    []*Table
 		Functions []*Function
+		Triggers  []*Trigger
 		Attrs     []Attr // Attrs and options.
 	}
 
@@ -29,7 +30,8 @@ type (
 		Indexes     []*Index
 		PrimaryKey  *Index
 		ForeignKeys []*ForeignKey
-		Attrs       []Attr // Attrs, constraints and options.
+		//		Triggers    []*Trigger
+		Attrs []Attr // Attrs, constraints and options.
 	}
 
 	Function struct {
@@ -40,6 +42,16 @@ type (
 		Language   string
 		Definition string
 		Attrs      []Attr
+	}
+
+	Trigger struct {
+		Table   *Table
+		Name    string
+		Type    string
+		Event   string
+		ForEach string
+		Execute *Function
+		Attrs   []Attr
 	}
 
 	// A Column represents a column definition.
@@ -124,6 +136,21 @@ func (s *Schema) Table(name string) (*Table, bool) {
 		}
 	}
 	return nil, false
+}
+
+// Trigger returns the first trigger that matched the given name.
+func (s *Schema) Trigger(name string) (*Trigger, bool) {
+	for _, tg := range s.Triggers {
+		if tg.Name == name {
+			return tg, true
+		}
+	}
+	return nil, false
+}
+
+func (s *Schema) AddTrigger(tg *Trigger, t *Table) {
+	tg.Table = t
+	s.Triggers = append(s.Triggers, tg)
 }
 
 // Column returns the first column that matched the given name.

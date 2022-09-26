@@ -27,6 +27,10 @@ func (d *Diff) FunctionAttrDiff(from, to *schema.Function) ([]schema.Change, err
 	return nil, nil
 }
 
+func (d *Diff) TriggerAttrDiff(from, to *schema.Trigger) ([]schema.Change, error) {
+	return nil, nil
+}
+
 // TableAttrDiff returns a changeset for migrating table attributes from one state to the other.
 func (d *Diff) TableAttrDiff(from, to *schema.Table) ([]schema.Change, error) {
 	var changes []schema.Change

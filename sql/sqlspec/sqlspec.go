@@ -11,7 +11,8 @@ import (
 type (
 	// Schema holds a specification for a Schema.
 	Schema struct {
-		Name string `spec:"name,name"`
+		Name      string      `spec:"name,name"`
+		Functions []*Function `spec:"function"`
 		schemahcl.DefaultExtension
 	}
 
@@ -21,6 +22,7 @@ type (
 		Qualifier   string         `spec:",qualifier"`
 		Schema      *schemahcl.Ref `spec:"schema"`
 		Columns     []*Column      `spec:"column"`
+		Triggers    []*Trigger     `spec:"trigger"`
 		PrimaryKey  *PrimaryKey    `spec:"primary_key"`
 		ForeignKeys []*ForeignKey  `spec:"foreign_key"`
 		Indexes     []*Index       `spec:"index"`
@@ -88,6 +90,16 @@ type (
 		Returns    string         `spec:"returns"`
 		Language   string         `spec:"language"`
 		Definition string         `spec:"definition"`
+		schemahcl.DefaultExtension
+	}
+
+	Trigger struct {
+		On      *schemahcl.Ref `spec:"on"`
+		Name    string         `spec:",name"`
+		Type    string         `spec:"type"`
+		Event   string         `spec:"event"`
+		ForEach string         `spec:"for_each"`
+		Execute *schemahcl.Ref `spec:"execute"`
 		schemahcl.DefaultExtension
 	}
 )

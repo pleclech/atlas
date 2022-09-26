@@ -84,12 +84,18 @@ func (s *state) plan(ctx context.Context, changes []schema.Change) error {
 			err = s.addFunction(ctx, c)
 		case *schema.AddTable:
 			err = s.addTable(ctx, c)
+		case *schema.AddTrigger:
+			err = s.addTrigger(ctx, c)
 		case *schema.DropFunction:
 			s.dropFunction(c)
+		case *schema.DropTrigger:
+			s.dropTrigger(c)
 		case *schema.DropTable:
 			s.dropTable(c)
 		case *schema.ModifyFunction:
 			err = s.modifyFunction(ctx, c)
+		case *schema.ModifyTrigger:
+			err = s.modifyTrigger(ctx, c)
 		case *schema.ModifyTable:
 			err = s.modifyTable(ctx, c)
 		case *schema.RenameTable:
@@ -139,10 +145,10 @@ func (s *state) topLevel(changes []schema.Change) []schema.Change {
 	return planned
 }
 
-// addFunction builds and executes the query for creating a table in a schema.
+// addFunction builds and executes the query for creating a function in a schema.
 func (s *state) addFunction(ctx context.Context, add *schema.AddFunction) error {
 	var (
-		b = s.Build("CREATE FUNCTION ").Function(add.F).FunctionDefinition(add.F)
+		b = s.Build("CREATE FUNCTION").Function(add.F).FunctionDefinition(add.F)
 	)
 
 	s.append(&migrate.Change{
@@ -151,6 +157,25 @@ func (s *state) addFunction(ctx context.Context, add *schema.AddFunction) error 
 		Comment: fmt.Sprintf("create %q function", add.F.Name),
 		Reverse: s.Build("DROP FUNCTION").Function(add.F).String(),
 	})
+
+	s.addFunctionComments(add.F)
+	return nil
+}
+
+// addFunction builds and executes the query for creating a trigger in a schema.
+func (s *state) addTrigger(ctx context.Context, add *schema.AddTrigger) error {
+	var (
+		b = s.Build("CREATE TRIGGER").Trigger(add.TG).TriggerDefinition(add.TG)
+	)
+
+	s.append(&migrate.Change{
+		Cmd:     b.String(),
+		Source:  add,
+		Comment: fmt.Sprintf("create %q trigger", add.TG.Name),
+		Reverse: s.Build("DROP TRIGGER").Trigger(add.TG).P("ON").Table(add.TG.Table).String(),
+	})
+
+	s.addTriggerComments(add.TG)
 	return nil
 }
 
@@ -224,6 +249,20 @@ func (s *state) dropFunction(drop *schema.DropFunction) {
 	})
 }
 
+// dropFunction builds and executes the query for dropping a table from a schema.
+func (s *state) dropTrigger(drop *schema.DropTrigger) {
+	b := s.Build("DROP TRIGGER")
+	if sqlx.Has(drop.Extra, &schema.IfExists{}) {
+		b.P("IF EXISTS")
+	}
+	b.Trigger(drop.TG).P("ON").Table(drop.TG.Table)
+	s.append(&migrate.Change{
+		Cmd:     b.String(),
+		Source:  drop,
+		Comment: fmt.Sprintf("drop %q trigger", drop.TG.Name),
+	})
+}
+
 // dropTable builds and executes the query for dropping a table from a schema.
 func (s *state) dropTable(drop *schema.DropTable) {
 	b := s.Build("DROP TABLE")
@@ -244,15 +283,50 @@ func (s *state) modifyFunction(ctx context.Context, modify *schema.ModifyFunctio
 		switch change := change.(type) {
 		case *schema.DropFunction:
 			s.dropFunction(change)
+		case *schema.AddAttr, *schema.ModifyAttr:
+			from, to, err := commentChange(change)
+			if err != nil {
+				return err
+			}
+			s.append(s.functionComment(modify.F, to, from))
 		case *schema.ModifyFunctionDefinition:
 			var (
-				b = s.Build("CREATE OR REPLACE FUNCTION").Function(modify.F).FunctionDefinition(modify.F)
+				b = s.Build("CREATE OR REPLACE FUNCTION").Function(change.To).FunctionDefinition(change.To)
 			)
 
 			s.append(&migrate.Change{
 				Cmd:     b.String(),
 				Source:  change,
 				Comment: fmt.Sprintf("create %q function", modify.F.Name),
+				Reverse: s.Build("CREATE OR REPLACE FUNCTION").Function(change.From).FunctionDefinition(change.From).String(),
+			})
+		}
+	}
+	return nil
+}
+
+// modifyTrigger builds the statements that bring the trigger into its modified state.
+func (s *state) modifyTrigger(ctx context.Context, modify *schema.ModifyTrigger) error {
+	for _, change := range modify.Changes {
+		switch change := change.(type) {
+		case *schema.DropTrigger:
+			s.dropTrigger(change)
+		case *schema.AddAttr, *schema.ModifyAttr:
+			from, to, err := commentChange(change)
+			if err != nil {
+				return err
+			}
+			s.append(s.triggerComment(modify.TG, to, from))
+		case *schema.ModifyTriggerDefinition:
+			var (
+				b = s.Build("CREATE OR REPLACE TRIGGER").Trigger(change.To).TriggerDefinition(change.To)
+			)
+
+			s.append(&migrate.Change{
+				Cmd:     b.String(),
+				Source:  change,
+				Comment: fmt.Sprintf("create %q trigger", modify.TG.Name),
+				Reverse: s.Build("CREATE OR REPLACE TRIGGER").Trigger(change.From).TriggerDefinition(change.From).String(),
 			})
 		}
 	}
@@ -685,6 +759,38 @@ func (s *state) addComments(t *schema.Table) {
 		if sqlx.Has(t.Indexes[i].Attrs, &c) && c.Text != "" {
 			s.append(s.indexComment(t, t.Indexes[i], c.Text, ""))
 		}
+	}
+}
+
+func (s *state) addFunctionComments(f *schema.Function) {
+	var c schema.Comment
+	if sqlx.Has(f.Attrs, &c) && c.Text != "" {
+		s.append(s.functionComment(f, c.Text, ""))
+	}
+}
+
+func (s *state) functionComment(f *schema.Function, to, from string) *migrate.Change {
+	b := s.Build("COMMENT ON FUNCTION").Function(f).P("IS")
+	return &migrate.Change{
+		Cmd:     b.Clone().P(quote(to)).String(),
+		Comment: fmt.Sprintf("set comment to function: %q", f.Name),
+		Reverse: b.Clone().P(quote(from)).String(),
+	}
+}
+
+func (s *state) addTriggerComments(tg *schema.Trigger) {
+	var c schema.Comment
+	if sqlx.Has(tg.Attrs, &c) && c.Text != "" {
+		s.append(s.triggerComment(tg, c.Text, ""))
+	}
+}
+
+func (s *state) triggerComment(tg *schema.Trigger, to, from string) *migrate.Change {
+	b := s.Build("COMMENT ON TRIGGER").Trigger(tg).P("ON").Table(tg.Table).P("IS")
+	return &migrate.Change{
+		Cmd:     b.Clone().P(quote(to)).String(),
+		Comment: fmt.Sprintf("set comment to trigger: %q", tg.Name),
+		Reverse: b.Clone().P(quote(from)).String(),
 	}
 }
 

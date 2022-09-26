@@ -247,7 +247,7 @@ func (b *Builder) Ident(s string) *Builder {
 	return b
 }
 
-// Table writes the function identifier to the builder, prefixed
+// Function writes the function identifier to the builder, prefixed
 // with the schema name if exists.
 func (b *Builder) Function(f *schema.Function) *Builder {
 	switch {
@@ -266,6 +266,16 @@ func (b *Builder) Function(f *schema.Function) *Builder {
 
 	b.Ident(f.Name).Wrap(func(b *Builder) { b.P(f.Args) })
 
+	return b
+}
+
+// Trigger writes the function identifier to the builder
+func (b *Builder) Trigger(tg *schema.Trigger) *Builder {
+	return b.Ident(tg.Name)
+}
+
+func (b *Builder) TriggerDefinition(tg *schema.Trigger) *Builder {
+	b.P(tg.Type).P(tg.Event).P("ON").Table(tg.Table).P("FOR EACH").P(tg.ForEach).P("EXECUTE FUNCTION").Function(tg.Execute)
 	return b
 }
 

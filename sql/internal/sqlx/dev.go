@@ -85,6 +85,10 @@ func (d *DevDriver) NormalizeRealm(ctx context.Context, r *schema.Realm) (nr *sc
 			}
 			changes = append(changes, &schema.AddTable{T: t})
 		}
+
+		for _, tg := range s.Triggers {
+			changes = append(changes, &schema.AddTrigger{TG: tg})
+		}
 	}
 	patch := func(r *schema.Realm) {
 		for _, s := range r.Schemas {

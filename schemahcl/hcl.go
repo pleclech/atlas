@@ -354,6 +354,7 @@ func (s *State) toResource(ctx *hcl.EvalContext, block *hclsyntax.Block, scope [
 	ctx = s.mayExtendVars(ctx, scope)
 	attrs, err := s.toAttrs(ctx, block.Body.Attributes, scope)
 	if err != nil {
+		s.toAttrs(ctx, block.Body.Attributes, scope)
 		return nil, err
 	}
 	spec.Attrs = attrs

@@ -22,6 +22,7 @@ type (
 	doc struct {
 		Functions []*sqlspec.Function `spec:"function"`
 		Tables    []*sqlspec.Table    `spec:"table"`
+		Triggers  []*sqlspec.Trigger  `spec:"trigger"`
 		Enums     []*Enum             `spec:"enum"`
 		Schemas   []*sqlspec.Schema   `spec:"schema"`
 	}
@@ -46,7 +47,7 @@ func evalSpec(p *hclparse.Parser, v any, input map[string]string) error {
 	}
 	switch v := v.(type) {
 	case *schema.Realm:
-		if err := specutil.Scan(v, d.Schemas, d.Functions, convertFunction, d.Tables, convertTable); err != nil {
+		if err := specutil.Scan(v, d.Schemas, d.Functions, convertFunction, d.Tables, convertTable, d.Triggers, convertTrigger); err != nil {
 			return fmt.Errorf("specutil: failed converting to *schema.Realm: %w", err)
 		}
 		if len(d.Enums) > 0 {
@@ -59,7 +60,7 @@ func evalSpec(p *hclparse.Parser, v any, input map[string]string) error {
 			return fmt.Errorf("specutil: expecting document to contain a single schema, got %d", len(d.Schemas))
 		}
 		r := &schema.Realm{}
-		if err := specutil.Scan(r, d.Schemas, d.Functions, convertFunction, d.Tables, convertTable); err != nil {
+		if err := specutil.Scan(r, d.Schemas, d.Functions, convertFunction, d.Tables, convertTable, d.Triggers, convertTrigger); err != nil {
 			return err
 		}
 		if err := convertEnums(d.Tables, d.Enums, r); err != nil {
@@ -84,6 +85,7 @@ func MarshalSpec(v any, marshaler schemahcl.Marshaler) ([]byte, error) {
 		}
 		d.Functions = doc.Functions
 		d.Tables = doc.Tables
+		d.Triggers = doc.Triggers
 		d.Schemas = doc.Schemas
 		d.Enums = doc.Enums
 	case *schema.Realm:
@@ -94,6 +96,7 @@ func MarshalSpec(v any, marshaler schemahcl.Marshaler) ([]byte, error) {
 			}
 			d.Functions = append(d.Functions, doc.Functions...)
 			d.Tables = append(d.Tables, doc.Tables...)
+			d.Triggers = append(d.Triggers, doc.Triggers...)
 			d.Schemas = append(d.Schemas, doc.Schemas...)
 			d.Enums = append(d.Enums, doc.Enums...)
 		}
@@ -238,6 +241,10 @@ func fromPartition(p Partition) *schemahcl.Resource {
 		key.Children = append(key.Children, part)
 	}
 	return key
+}
+
+func convertTrigger(spec *sqlspec.Trigger, parent *schema.Table) (*schema.Trigger, error) {
+	return specutil.Trigger(spec, parent)
 }
 
 // convertColumn converts a sqlspec.Column into a schema.Column.
@@ -453,13 +460,14 @@ func enumRef(n string) *schemahcl.Ref {
 
 // schemaSpec converts from a concrete Postgres schema to Atlas specification.
 func schemaSpec(schem *schema.Schema) (*doc, error) {
-	s, funcs, tbls, err := specutil.FromSchema(schem, functionSpec, tableSpec)
+	s, funcs, tbls, trgs, err := specutil.FromSchema(schem, functionSpec, tableSpec, triggerSpec)
 	if err != nil {
 		return nil, err
 	}
 	d := &doc{
 		Tables:    tbls,
 		Functions: funcs,
+		Triggers:  trgs,
 		Schemas:   []*sqlspec.Schema{s},
 	}
 	enums := make(map[string]bool)
@@ -528,6 +536,11 @@ func indexSpec(idx *schema.Index) (*sqlspec.Index, error) {
 		spec.Extra.Attrs = append(spec.Extra.Attrs, specutil.Int64Attr("page_per_range", p.PagesPerRange))
 	}
 	return spec, nil
+}
+
+// triggerSpec converts from a concrete Postgres schema.Trigger into a sqlspec.Trigger.
+func triggerSpec(tg *schema.Trigger) (*sqlspec.Trigger, error) {
+	return specutil.FromTrigger(tg)
 }
 
 // columnSpec converts from a concrete Postgres schema.Column into a sqlspec.Column.

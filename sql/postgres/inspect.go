@@ -41,6 +41,9 @@ func (i *inspect) InspectRealm(ctx context.Context, opts *schema.InspectRealmOpt
 	if err := i.inspectFunctions(ctx, r, nil); err != nil {
 		return nil, err
 	}
+	if err := i.inspectTriggers(ctx, r, nil); err != nil {
+		return nil, err
+	}
 	sqlx.LinkSchemaTables(schemas)
 	return sqlx.ExcludeRealm(r, opts.Exclude)
 }
@@ -68,6 +71,9 @@ func (i *inspect) InspectSchema(ctx context.Context, name string, opts *schema.I
 			return nil, err
 		}
 		if err := i.inspectFunctions(ctx, r, opts); err != nil {
+			return nil, err
+		}
+		if err := i.inspectTriggers(ctx, r, opts); err != nil {
 			return nil, err
 		}
 		sqlx.LinkSchemaTables(schemas)
@@ -145,6 +151,71 @@ func (i *inspect) tables(ctx context.Context, realm *schema.Realm, opts *schema.
 				attrs: partattrs.String,
 				exprs: partexprs.String,
 			})
+		}
+	}
+	return rows.Close()
+}
+
+func (i *inspect) inspectTriggers(ctx context.Context, realm *schema.Realm, opts *schema.InspectOptions) error {
+	if err := i.triggers(ctx, realm, opts); err != nil {
+		return err
+	}
+	return nil
+}
+
+// triggers queries and appends the trigger of the given table.
+func (i *inspect) triggers(ctx context.Context, realm *schema.Realm, opts *schema.InspectOptions) error {
+	var (
+		args  []any
+		query = fmt.Sprintf(tableTriggersQuery, nArgs(0, len(realm.Schemas)))
+	)
+	for _, s := range realm.Schemas {
+		args = append(args, s.Name)
+	}
+
+	rows, err := i.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tSchema, relation, name, tg_type, event, description, level, fn_name sql.NullString
+		if err := rows.Scan(&tSchema, &relation, &name, &tg_type, &event, &description, &level, &fn_name); err != nil {
+			return fmt.Errorf("scan trigger information: %w", err)
+		}
+
+		if !sqlx.ValidString(tSchema) || !sqlx.ValidString(name) {
+			return fmt.Errorf("invalid schema or trigger name: %q.%q", tSchema.String, name.String)
+		}
+
+		s, ok := realm.Schema(tSchema.String)
+		if !ok {
+			return fmt.Errorf("schema %q was not found in realm", tSchema.String)
+		}
+
+		t, ok := s.Table(relation.String)
+		if !ok {
+			return fmt.Errorf("table %q not found in schema %q", relation.String, tSchema.String)
+		}
+
+		tmp := strings.Split(fn_name.String, ".")
+		if len(tmp) != 2 {
+			return fmt.Errorf("invalid qualified function name %q", fn_name.String)
+		}
+
+		fnSchema, ok := realm.Schema(tmp[0])
+		if !ok {
+			return fmt.Errorf("can't find schema %q in realm", tmp[0])
+		}
+		fn, ok := fnSchema.Function(tmp[1], "")
+		if !ok {
+			return fmt.Errorf("can't find function %s in schema %q", tmp[1], tmp[0])
+		}
+
+		tg := &schema.Trigger{Name: name.String, Type: tg_type.String, Event: event.String, ForEach: level.String, Execute: fn}
+		s.AddTrigger(tg, t)
+		if sqlx.ValidString(description) {
+			tg.SetComment(description.String)
 		}
 	}
 	return rows.Close()
@@ -1166,5 +1237,43 @@ FROM pg_proc p
 	LEFT OUTER JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE p.prokind = 'f'
 	AND n.nspname in (%s)
+`
+
+	tableTriggersQuery = `
+SELECT
+	ns.nspname as schema,
+	tbl.relname as relation,
+	trg.tgname as name,
+	CASE trg.tgtype::INTEGER & 66
+		WHEN 2 THEN 'BEFORE'
+		WHEN 64 THEN 'INSTEAD OF'
+		ELSE 'AFTER'
+	END AS type,
+	CASE trg.tgtype::INTEGER & cast(28 AS INT2)
+		WHEN 16 THEN 'UPDATE'
+	 	WHEN 8 THEN 'DELETE'
+	 	WHEN 4 THEN 'INSERT'
+		WHEN 20 THEN 'INSERT OR UPDATE'
+		WHEN 28 THEN 'INSERT OR UPDATE OR DELETE'
+		WHEN 24 THEN 'UPDATE OR DELETE'
+		WHEN 12 THEN 'INSERT OR DELETE'
+	END AS event,
+	obj_description(trg.oid) AS desciption,
+	CASE trg.tgtype::INTEGER & 1
+   		WHEN 1 THEN 'ROW'::TEXT
+		ELSE 'STATEMENT'::TEXT
+	END AS level,
+	n.nspname || '.' || proc.proname AS function_name
+FROM 
+	pg_trigger trg
+	JOIN pg_proc proc ON proc.oid = trg.tgfoid
+	JOIN pg_catalog.pg_namespace n ON n.oid = proc.pronamespace
+	JOIN pg_class tbl ON trg.tgrelid = tbl.oid
+	JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+WHERE
+	trg.tgenabled='O' AND
+	ns.nspname in (%s) AND
+	trg.tgname not like 'RI_ConstraintTrigger%%' AND 
+	trg.tgname not like 'pg_sync_pg%%';
 `
 )

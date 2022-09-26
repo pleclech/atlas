@@ -69,6 +69,12 @@ type (
 		Extra []Clause // Extra clauses and options.
 	}
 
+	// AddTrigger describes a function creation change.
+	AddTrigger struct {
+		TG    *Trigger
+		Extra []Clause // Extra clauses and options.
+	}
+
 	// AddTable describes a table creation change.
 	AddTable struct {
 		T     *Table
@@ -81,15 +87,27 @@ type (
 		Extra []Clause // Extra clauses.
 	}
 
+	// DropTrigger describes a trigger removal change.
+	DropTrigger struct {
+		TG    *Trigger
+		Extra []Clause // Extra clauses.
+	}
+
 	// DropTable describes a table removal change.
 	DropTable struct {
 		T     *Table
 		Extra []Clause // Extra clauses.
 	}
 
-	// ModifyTable describes a table modification change.
+	// ModifyFunction describes a table modification change.
 	ModifyFunction struct {
 		F       *Function
+		Changes []Change
+	}
+
+	// ModifyTrigger describes a trigger modification change.
+	ModifyTrigger struct {
+		TG      *Trigger
 		Changes []Change
 	}
 
@@ -116,6 +134,11 @@ type (
 
 	ModifyFunctionDefinition struct {
 		From, To *Function
+		Change   ChangeKind
+	}
+
+	ModifyTriggerDefinition struct {
+		From, To *Trigger
 		Change   ChangeKind
 	}
 
@@ -262,6 +285,8 @@ const (
 	ChangeDeleteAction
 
 	ChangeFunctionDefinition
+
+	ChangeTriggerDefinition
 )
 
 // Is reports whether c is match the given change kind.
@@ -398,10 +423,13 @@ func (*AddSchema) change()                {}
 func (*DropSchema) change()               {}
 func (*ModifySchema) change()             {}
 func (*AddFunction) change()              {}
+func (*AddTrigger) change()               {}
 func (*AddTable) change()                 {}
 func (*DropFunction) change()             {}
+func (*DropTrigger) change()              {}
 func (*DropTable) change()                {}
 func (*ModifyFunction) change()           {}
+func (*ModifyTrigger) change()            {}
 func (*ModifyTable) change()              {}
 func (*RenameTable) change()              {}
 func (*AddIndex) change()                 {}
@@ -414,6 +442,7 @@ func (*ModifyCheck) change()              {}
 func (*AddColumn) change()                {}
 func (*DropColumn) change()               {}
 func (*ModifyFunctionDefinition) change() {}
+func (*ModifyTriggerDefinition) change()  {}
 func (*ModifyColumn) change()             {}
 func (*RenameColumn) change()             {}
 func (*AddForeignKey) change()            {}

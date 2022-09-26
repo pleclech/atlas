@@ -35,6 +35,10 @@ type (
 		// one state to the other.
 		FunctionAttrDiff(from, to *schema.Function) ([]schema.Change, error)
 
+		// TriggerAttrDiff returns a changeset for migrating function attributes from
+		// one state to the other.
+		TriggerAttrDiff(from, to *schema.Trigger) ([]schema.Change, error)
+
 		// TableAttrDiff returns a changeset for migrating table attributes from
 		// one state to the other. For example, dropping or adding a `CHECK` constraint.
 		TableAttrDiff(from, to *schema.Table) ([]schema.Change, error)
@@ -169,6 +173,32 @@ func (d *Diff) SchemaDiff(from, to *schema.Schema) ([]schema.Change, error) {
 			changes = append(changes, &schema.AddTable{T: t1})
 		}
 	}
+
+	// Drop or modify triggers.
+	for _, tg1 := range from.Triggers {
+		tg2, ok := to.Trigger(tg1.Name)
+		if !ok {
+			changes = append(changes, &schema.DropTrigger{TG: tg1})
+			continue
+		}
+		change, err := d.TriggerDiff(tg1, tg2)
+		if err != nil {
+			return nil, err
+		}
+		if len(change) > 0 {
+			changes = append(changes, &schema.ModifyTrigger{
+				TG:      tg2,
+				Changes: change,
+			})
+		}
+	}
+	// Add triggers.
+	for _, tg1 := range to.Triggers {
+		if _, ok := from.Trigger(tg1.Name); !ok {
+			changes = append(changes, &schema.AddTrigger{TG: tg1})
+		}
+	}
+
 	return changes, nil
 }
 
@@ -203,6 +233,33 @@ func (d *Diff) FunctionDiff(from, to *schema.Function) ([]schema.Change, error) 
 			From:   from,
 			To:     to,
 			Change: schema.ChangeFunctionDefinition,
+		})
+	}
+
+	return changes, nil
+}
+
+// TriggerDiff implements the schema.TriggerDiffer interface and returns a list of
+// changes that need to be applied in order to move from one state to the other.
+func (d *Diff) TriggerDiff(from, to *schema.Trigger) ([]schema.Change, error) {
+	if from.Name != to.Name {
+		return nil, fmt.Errorf("mismatched trigger names: %q != %q", from.Name, to.Name)
+	}
+
+	var changes []schema.Change
+
+	// Drop or modify attributes (collations, checks, etc).
+	change, err := d.TriggerAttrDiff(from, to)
+	if err != nil {
+		return nil, err
+	}
+	changes = append(changes, change...)
+
+	if from.Event != to.Event || from.Execute.Definition != to.Execute.Definition || from.ForEach != to.ForEach || from.Type != to.Type {
+		changes = append(changes, &schema.ModifyTriggerDefinition{
+			From:   from,
+			To:     to,
+			Change: schema.ChangeTriggerDefinition,
 		})
 	}
 
@@ -287,6 +344,7 @@ func (d *Diff) TableDiff(from, to *schema.Table) ([]schema.Change, error) {
 			changes = append(changes, &schema.AddForeignKey{F: fk1})
 		}
 	}
+
 	return changes, nil
 }
 
