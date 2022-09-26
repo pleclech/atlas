@@ -6,6 +6,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/url"
@@ -35,7 +36,6 @@ type (
 	conn struct {
 		schema.ExecQuerier
 		// System variables that are set on `Open`.
-		fkEnabled  bool
 		version    string
 		collations []string
 	}
@@ -48,6 +48,7 @@ func init() {
 	sqlclient.Register(
 		DriverName,
 		sqlclient.DriverOpener(Open),
+		sqlclient.RegisterTxOpener(openTx),
 		sqlclient.RegisterCodec(MarshalHCL, EvalHCL),
 		sqlclient.RegisterFlavours("sqlite"),
 		sqlclient.RegisterURLParser(sqlclient.URLParserFunc(func(u *url.URL) *sqlclient.URL {
@@ -67,11 +68,11 @@ func Open(db schema.ExecQuerier) (migrate.Driver, error) {
 		c   = conn{ExecQuerier: db}
 		ctx = context.Background()
 	)
-	rows, err := db.QueryContext(ctx, "SELECT sqlite_version(), foreign_keys from pragma_foreign_keys")
+	rows, err := db.QueryContext(ctx, "SELECT sqlite_version()")
 	if err != nil {
-		return nil, fmt.Errorf("sqlite: query version and foreign_keys pragma: %w", err)
+		return nil, fmt.Errorf("sqlite: query version pragma: %w", err)
 	}
-	if err := sqlx.ScanOne(rows, &c.version, &c.fkEnabled); err != nil {
+	if err := sqlx.ScanOne(rows, &c.version); err != nil {
 		return nil, fmt.Errorf("sqlite: scan version and foreign_keys pragma: %w", err)
 	}
 	if rows, err = db.QueryContext(ctx, "SELECT name FROM pragma_collation_list()"); err != nil {
@@ -162,6 +163,35 @@ func acquireLock(path string, timeout time.Duration) (schema.UnlockFunc, error) 
 	}
 	defer lock.Close()
 	return func() error { return os.Remove(path) }, nil
+}
+
+func openTx(ctx context.Context, db *sql.DB, opts *sql.TxOptions) (*sqlclient.Tx, error) {
+	var on sql.NullBool
+	if err := db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&on); err != nil {
+		return nil, fmt.Errorf("sql/sqlite: querying 'foreign_keys' pragma: %w", err)
+	}
+	// Disable the foreign_keys pragma in case it is enabled, and
+	// toggle it back after transaction is committed or rolled back.
+	if on.Bool {
+		if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = off"); err != nil {
+			return nil, fmt.Errorf("sql/sqlite: set 'foreign_keys = off': %w", err)
+		}
+	}
+	tx, err := db.BeginTx(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &sqlclient.Tx{
+		Tx: tx,
+		Close: func() error {
+			if on.Bool {
+				if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = on"); err != nil {
+					return fmt.Errorf("sql/sqlite: set 'foreign_keys = on': %w", err)
+				}
+			}
+			return nil
+		},
+	}, nil
 }
 
 // SQLite standard data types as defined in its codebase and documentation.
