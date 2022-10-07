@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,7 +20,7 @@ import (
 	"time"
 
 	"ariga.io/atlas/cmd/atlas/internal/lint"
-	entmigrate "ariga.io/atlas/cmd/atlas/internal/migrate"
+	cmdmigrate "ariga.io/atlas/cmd/atlas/internal/migrate"
 	"ariga.io/atlas/cmd/atlas/internal/migrate/ent/revision"
 	"ariga.io/atlas/sql/migrate"
 	"ariga.io/atlas/sql/schema"
@@ -62,7 +63,7 @@ var (
 		ToURLs         []string
 		Schemas        []string
 		DirURL         string
-		DirFormat      string
+		DirFormat      string // Deprecated: format is enclosed in the dir URL now.
 		RevisionSchema string
 		Apply          struct {
 			DryRun          bool
@@ -85,6 +86,9 @@ var (
 			GitDir  string // repository working dir
 			GitBase string // branch name to compare with
 		}
+		Status struct {
+			Format string // log formatting
+		}
 	}
 	// MigrateCmd represents the migrate command. It wraps several other sub-commands.
 	MigrateCmd = &cobra.Command{
@@ -95,7 +99,10 @@ var (
 			if err := migrateFlagsFromEnv(cmd, nil); err != nil {
 				return err
 			}
-			dir, err := dir(false)
+			if err := dirFormatBC(); err != nil {
+				return err
+			}
+			dir, err := dir(MigrateFlags.DirURL, false)
 			if err != nil {
 				return err
 			}
@@ -144,7 +151,10 @@ directory state to the desired schema. The desired state can be another connecte
 			if err := migrateFlagsFromEnv(cmd, nil); err != nil {
 				return err
 			}
-			dir, err := dir(true)
+			if err := dirFormatBC(); err != nil {
+				return err
+			}
+			dir, err := dir(MigrateFlags.DirURL, true)
 			if err != nil {
 				return err
 			}
@@ -163,23 +173,33 @@ directory state to the desired schema. The desired state can be another connecte
 		Short: "Hash (re-)creates an integrity hash file for the migration directory.",
 		Long: `'atlas migrate hash' computes the integrity hash sum of the migration directory and stores it in the atlas.sum file.
 This command should be used whenever a manual change in the migration directory was made.`,
-		Example:           `  atlas migrate hash`,
-		PersistentPreRunE: migrateFlagsFromEnv,
-		RunE:              CmdMigrateHashRun,
+		Example: `  atlas migrate hash`,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if err := migrateFlagsFromEnv(cmd, nil); err != nil {
+				return err
+			}
+			if err := dirFormatBC(); err != nil {
+				return err
+			}
+			return nil
+		},
+		RunE: CmdMigrateHashRun,
 	}
 	// MigrateImportCmd represents the 'atlas migrate import' command.
 	MigrateImportCmd = &cobra.Command{
 		Use:     "import",
 		Short:   "Import a migration directory from another migration management tool to the Atlas format.",
-		Example: `  atlas migrate import --dir-format liquibase --from file:///path/to/source/directory --to file:///path/to/migration/directory`,
+		Example: `  atlas migrate import --from file:///path/to/source/directory?format=liquibase --to file:///path/to/migration/directory`,
 		// Validate the source directory. Consider a directory with no sum file valid, since it might be an import
 		// from an existing project.
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			if err := migrateFlagsFromEnv(cmd, nil); err != nil {
 				return err
 			}
-			MigrateFlags.DirURL = MigrateFlags.Import.FromURL
-			dir, err := dir(false)
+			if err := dirFormatBC(); err != nil {
+				return err
+			}
+			dir, err := dir(MigrateFlags.Import.FromURL, false)
 			if err != nil {
 				return err
 			}
@@ -245,8 +265,16 @@ files are executed on the connected database in order to validate SQL semantics.
   atlas migrate lint --dir file:///path/to/migration/directory --dev-url mysql://root:pass@localhost:3306 --log '{{ json .Files }}'`,
 		// Override the parent 'migrate' pre-run function to allow executing
 		// 'migrate lint' on directories that are not maintained by Atlas.
-		PersistentPreRunE: migrateFlagsFromEnv,
-		RunE:              CmdMigrateLintRun,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if err := migrateFlagsFromEnv(cmd, nil); err != nil {
+				return err
+			}
+			if err := dirFormatBC(); err != nil {
+				return err
+			}
+			return nil
+		},
+		RunE: CmdMigrateLintRun,
 	}
 )
 
@@ -289,7 +317,6 @@ func init() {
 	MigrateApplyCmd.Flags().SortFlags = false
 	cobra.CheckErr(MigrateApplyCmd.MarkFlagRequired(migrateFlagURL))
 	MigrateApplyCmd.MarkFlagsMutuallyExclusive(migrateFlagFrom, migrateApplyBaselineVersion)
-	cobra.CheckErr(MigrateApplyCmd.Flags().MarkHidden(migrateFlagDirFormat))
 	cobra.CheckErr(MigrateApplyCmd.Flags().MarkHidden(migrateFlagSchema))
 	// Diff flags.
 	urlFlag(&MigrateFlags.DevURL, migrateFlagDevURL, "", MigrateDiffCmd.Flags())
@@ -307,6 +334,7 @@ func init() {
 	// Status flags.
 	urlFlag(&MigrateFlags.URL, migrateFlagURL, "u", MigrateStatusCmd.Flags())
 	revisionsFlag(MigrateStatusCmd.Flags())
+	MigrateStatusCmd.Flags().StringVarP(&MigrateFlags.Status.Format, migrateFlagLog, "", "", "custom logging using a Go template")
 	// Set flags.
 	urlFlag(&MigrateFlags.URL, migrateFlagURL, "u", MigrateSetCmd.Flags())
 	// Hash flags.
@@ -340,7 +368,7 @@ func CmdMigrateApplyRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 	// Open the migration directory.
-	dir, err := dir(false)
+	dir, err := dir(MigrateFlags.DirURL, false)
 	if err != nil {
 		return err
 	}
@@ -372,7 +400,7 @@ func CmdMigrateApplyRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := rrw.(*entmigrate.EntRevisions).Migrate(cmd.Context()); err != nil {
+	if err := rrw.(*cmdmigrate.EntRevisions).Migrate(cmd.Context()); err != nil {
 		return err
 	}
 	// Determine pending files and lock the database while working.
@@ -479,8 +507,8 @@ schema if it is unused.
 	return nil
 }
 
-func entRevisions(ctx context.Context, c *sqlclient.Client) (*entmigrate.EntRevisions, error) {
-	return entmigrate.NewEntRevisions(ctx, c, entmigrate.WithSchema(revisionSchemaName(c)))
+func entRevisions(ctx context.Context, c *sqlclient.Client) (*cmdmigrate.EntRevisions, error) {
+	return cmdmigrate.NewEntRevisions(ctx, c, cmdmigrate.WithSchema(revisionSchemaName(c)))
 }
 
 // defaultRevisionSchema is the default schema for storing revisions table.
@@ -595,7 +623,7 @@ func executorOptions(l migrate.Logger) []migrate.ExecutorOption {
 
 func operatorVersion() string {
 	v, _ := parse(version)
-	return "Atlas CLI - " + v
+	return "Atlas CLI " + v
 }
 
 // CmdMigrateDiffRun is the command executed when running the CLI with 'migrate diff' args.
@@ -616,7 +644,15 @@ func CmdMigrateDiffRun(cmd *cobra.Command, args []string) error {
 		defer cobra.CheckErr(unlock())
 	}
 	// Open the migration directory.
-	dir, err := dir(false)
+	u, err := url.Parse(MigrateFlags.DirURL)
+	if err != nil {
+		return err
+	}
+	dir, err := dirURL(u, false)
+	if err != nil {
+		return err
+	}
+	f, err := formatter(u)
 	if err != nil {
 		return err
 	}
@@ -626,10 +662,6 @@ func CmdMigrateDiffRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer desired.Close()
-	f, err := formatter()
-	if err != nil {
-		return err
-	}
 	opts := []migrate.PlannerOption{migrate.PlanFormat(f)}
 	if dev.URL.Schema != "" {
 		// Disable tables qualifier in schema-mode.
@@ -664,7 +696,7 @@ func CmdMigrateDiffRun(cmd *cobra.Command, args []string) error {
 
 // CmdMigrateHashRun is the command executed when running the CLI with 'migrate hash' args.
 func CmdMigrateHashRun(*cobra.Command, []string) error {
-	dir, err := dir(false)
+	dir, err := dir(MigrateFlags.DirURL, false)
 	if err != nil {
 		return err
 	}
@@ -677,17 +709,19 @@ func CmdMigrateHashRun(*cobra.Command, []string) error {
 
 // CmdMigrateImportRun is the command executed when running the CLI with 'migrate import' args.
 func CmdMigrateImportRun(cmd *cobra.Command, _ []string) error {
-	if MigrateFlags.DirFormat == formatAtlas {
-		return fmt.Errorf("cannot import a migration directory already in %q format", formatAtlas)
-	}
-	MigrateFlags.DirURL = MigrateFlags.Import.FromURL
-	src, err := dir(false)
+	p, err := url.Parse(MigrateFlags.Import.FromURL)
 	if err != nil {
 		return err
 	}
-	MigrateFlags.DirFormat = formatAtlas
-	MigrateFlags.DirURL = MigrateFlags.Import.ToURL
-	trgt, err := dir(true)
+	if f := p.Query().Get("format"); f == "" || f == formatAtlas {
+		return fmt.Errorf("cannot import a migration directory already in %q format", formatAtlas)
+	}
+	src, err := dir(MigrateFlags.Import.FromURL, false)
+	if err != nil {
+		return err
+	}
+	MigrateFlags.DirFormat = formatAtlas // remove assignment once the --dir-format flag is removed
+	trgt, err := dir(MigrateFlags.Import.ToURL, true)
 	if err != nil {
 		return err
 	}
@@ -755,11 +789,15 @@ func CmdMigrateImportRun(cmd *cobra.Command, _ []string) error {
 
 // CmdMigrateNewRun is the command executed when running the CLI with 'migrate new' args.
 func CmdMigrateNewRun(_ *cobra.Command, args []string) error {
-	dir, err := dir(true)
+	u, err := url.Parse(MigrateFlags.DirURL)
 	if err != nil {
 		return err
 	}
-	f, err := formatter()
+	dir, err := dirURL(u, true)
+	if err != nil {
+		return err
+	}
+	f, err := formatter(u)
 	if err != nil {
 		return err
 	}
@@ -772,7 +810,7 @@ func CmdMigrateNewRun(_ *cobra.Command, args []string) error {
 
 // CmdMigrateSetRun is the command executed when running the CLI with 'migrate set' args.
 func CmdMigrateSetRun(cmd *cobra.Command, args []string) error {
-	dir, err := dir(false)
+	dir, err := dir(MigrateFlags.DirURL, false)
 	if err != nil {
 		return err
 	}
@@ -906,16 +944,10 @@ func CmdMigrateSetRun(cmd *cobra.Command, args []string) error {
 
 // CmdMigrateStatusRun is the command executed when running the CLI with 'migrate status' args.
 func CmdMigrateStatusRun(cmd *cobra.Command, _ []string) error {
-	// Open the migration directory.
-	dir, err := dir(false)
+	dir, err := dir(MigrateFlags.DirURL, false)
 	if err != nil {
 		return err
 	}
-	avail, err := dir.Files()
-	if err != nil {
-		return err
-	}
-	// Open a client to the database.
 	client, err := sqlclient.Open(cmd.Context(), MigrateFlags.URL)
 	if err != nil {
 		return err
@@ -924,87 +956,19 @@ func CmdMigrateStatusRun(cmd *cobra.Command, _ []string) error {
 	if err := checkRevisionSchemaClarity(cmd, client); err != nil {
 		return err
 	}
-	// Inspect schema and check if the table does already exist.
-	s, err := client.InspectSchema(
-		cmd.Context(),
-		revisionSchemaName(client),
-		&schema.InspectOptions{Tables: []string{revision.Table}},
-	)
-	switch {
-	case err != nil && !schema.IsNotExistError(err):
-		return err
-	case schema.IsNotExistError(err):
-		return statusPrint(cmd.OutOrStdout(), avail, avail, nil)
-	}
-	if _, ok := s.Table(revision.Table); !ok {
-		// Table does not exist.
-		return statusPrint(cmd.OutOrStdout(), avail, avail, nil)
-	}
-	// Currently, only in DB revisions are supported.
-	rrw, err := entRevisions(cmd.Context(), client)
-	if err != nil {
-		return err
-	}
-	// Executor can give us insights on the revision state.
-	ex, err := migrate.NewExecutor(client.Driver, dir, rrw)
-	if err != nil {
-		return err
-	}
-	pending, err := ex.Pending(cmd.Context())
-	if err != nil && !errors.Is(err, migrate.ErrNoPendingFiles) {
-		return err
-	}
-	revs, err := rrw.ReadRevisions(cmd.Context())
-	if err != nil {
-		return err
-	}
-	return statusPrint(cmd.OutOrStdout(), avail, pending, revs)
-}
-
-func statusPrint(out io.Writer, avail, pending []migrate.File, revs []*migrate.Revision) (err error) {
-	var (
-		cur, next, state string
-		applied          = avail[: len(avail)-len(pending) : len(avail)-len(pending)]
-		partial          = len(revs) != 0 && revs[len(revs)-1].Applied < revs[len(revs)-1].Total
-	)
-	switch len(pending) {
-	case len(avail):
-		cur = "No version applied yet"
-	default:
-		cur = cyan(applied[len(applied)-1].Version())
-		// If the last pending version is partially applied, tell so.
-		if partial {
-			cur += fmt.Sprintf(" (%d statements applied)", revs[len(revs)-1].Applied)
+	var format = cmdmigrate.DefaultTemplate
+	if f := MigrateFlags.Status.Format; f != "" {
+		format, err = template.New("format").Funcs(cmdmigrate.TemplateFuncs).Parse(f)
+		if err != nil {
+			return fmt.Errorf("parse log format: %w", err)
 		}
 	}
-	if len(pending) == 0 {
-		state = green("OK")
-		next = "Already at latest version"
-	} else {
-		state = yellow("PENDING")
-		next = cyan(pending[0].Version())
-		if partial {
-			next += fmt.Sprintf(" (%d statements left)", revs[len(revs)-1].Total-revs[len(revs)-1].Applied)
-		}
-	}
-	exec := cyan(strconv.Itoa(len(applied)))
-	if partial {
-		exec += " + 1 partially"
-	}
-	c := cyan
-	if len(pending) == 0 {
-		c = green
-	}
-	fmt.Fprintf(out, "Migration Status: %s\n", state)
-	fmt.Fprintf(out, "%s%s Current Version:  %s\n", indent2, dash, cur)
-	fmt.Fprintf(out, "%s%s Next Version:     %s\n", indent2, dash, next)
-	fmt.Fprintf(out, "%s%s Executed Files:   %s\n", indent2, dash, exec)
-	fmt.Fprintf(out, "%s%s Pending Files:    %s", indent2, dash, c(strconv.Itoa(len(pending))))
-	if partial {
-		fmt.Fprintf(out, " (partially)")
-	}
-	fmt.Fprintf(out, "\n")
-	return nil
+	return (&cmdmigrate.Reporter{
+		Client:       client,
+		Dir:          dir,
+		ReportWriter: &cmdmigrate.TemplateWriter{T: format, W: cmd.OutOrStdout()},
+		Schema:       revisionSchemaName(client),
+	}).Status(cmd.Context())
 }
 
 // CmdMigrateValidateRun is the command executed when running the CLI with 'migrate validate' args.
@@ -1021,7 +985,7 @@ func CmdMigrateValidateRun(cmd *cobra.Command, _ []string) error {
 	}
 	defer dev.Close()
 	// Currently, only our own migration file format is supported.
-	dir, err := dir(false)
+	dir, err := dir(MigrateFlags.DirURL, false)
 	if err != nil {
 		return err
 	}
@@ -1047,7 +1011,7 @@ func CmdMigrateLintRun(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer dev.Close()
-	dir, err := dir(false)
+	dir, err := dir(MigrateFlags.DirURL, false)
 	if err != nil {
 		return err
 	}
@@ -1119,39 +1083,73 @@ to re-hash the contents and resolve the error
 `)
 }
 
-// dir returns a migrate.Dir to use as migration directory. For now only local directories are supported.
-func dir(create bool) (migrate.Dir, error) {
-	parts := strings.SplitN(MigrateFlags.DirURL, "://", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid dir url %q", MigrateFlags.DirURL)
+// dir parses u and calls dirURL.
+func dir(u string, create bool) (migrate.Dir, error) {
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return nil, err
 	}
-	if parts[0] != "file" {
-		return nil, fmt.Errorf("unsupported driver %q", parts[0])
+	return dirURL(parsed, create)
+}
+
+// dirURL returns a migrate.Dir to use as migration directory. For now only local directories are supported.
+func dirURL(u *url.URL, create bool) (migrate.Dir, error) {
+	if u.Scheme != "file" {
+		return nil, fmt.Errorf("unsupported driver %q", u.Scheme)
 	}
-	f := func() (migrate.Dir, error) { return migrate.NewLocalDir(parts[1]) }
-	switch MigrateFlags.DirFormat {
+	path := filepath.Join(u.Host, u.Path)
+	if path == "" {
+		path = "migrations"
+	}
+	fn := func() (migrate.Dir, error) { return migrate.NewLocalDir(path) }
+	switch f := u.Query().Get("format"); f {
 	case formatAtlas:
+		// this is the default
 	case formatGolangMigrate:
-		f = func() (migrate.Dir, error) { return sqltool.NewGolangMigrateDir(parts[1]) }
+		fn = func() (migrate.Dir, error) { return sqltool.NewGolangMigrateDir(path) }
 	case formatGoose:
-		f = func() (migrate.Dir, error) { return sqltool.NewGooseDir(parts[1]) }
+		fn = func() (migrate.Dir, error) { return sqltool.NewGooseDir(path) }
 	case formatFlyway:
-		f = func() (migrate.Dir, error) { return sqltool.NewFlywayDir(parts[1]) }
+		fn = func() (migrate.Dir, error) { return sqltool.NewFlywayDir(path) }
 	case formatLiquibase:
-		f = func() (migrate.Dir, error) { return sqltool.NewLiquibaseDir(parts[1]) }
+		fn = func() (migrate.Dir, error) { return sqltool.NewLiquibaseDir(path) }
 	case formatDBMate:
-		f = func() (migrate.Dir, error) { return sqltool.NewDBMateDir(parts[1]) }
+		fn = func() (migrate.Dir, error) { return sqltool.NewDBMateDir(path) }
 	default:
-		return nil, fmt.Errorf("unknown dir format %q", MigrateFlags.DirFormat)
+		return nil, fmt.Errorf("unknown dir format %q", f)
 	}
-	d, err := f()
+	d, err := fn()
 	if create && errors.Is(err, fs.ErrNotExist) {
-		if err := os.MkdirAll(parts[1], 0755); err != nil {
+		if err := os.MkdirAll(path, 0755); err != nil {
 			return nil, err
 		}
-		d, err = f()
+		d, err = fn()
+		if err != nil {
+			return nil, err
+		}
 	}
 	return d, err
+}
+
+// dirFormatBC ensures the soon-to-be deprecated --dir-format flag gets set on all migration directory URLs.
+func dirFormatBC() error {
+	for _, s := range []*string{
+		&MigrateFlags.DirURL,
+		&MigrateFlags.Import.FromURL,
+		&MigrateFlags.Import.ToURL,
+	} {
+		u, err := url.Parse(*s)
+		if err != nil {
+			return err
+		}
+		if !u.Query().Has("format") && MigrateFlags.DirFormat != "" {
+			q := u.Query()
+			q.Set("format", MigrateFlags.DirFormat)
+			u.RawQuery = q.Encode()
+			*s = u.String()
+		}
+	}
+	return nil
 }
 
 type target struct {
@@ -1332,8 +1330,8 @@ const (
 	formatDBMate        = "dbmate"
 )
 
-func formatter() (migrate.Formatter, error) {
-	switch MigrateFlags.DirFormat {
+func formatter(u *url.URL) (migrate.Formatter, error) {
+	switch f := u.Query().Get("format"); f {
 	case formatAtlas:
 		return migrate.DefaultFormatter, nil
 	case formatGolangMigrate:
@@ -1347,7 +1345,7 @@ func formatter() (migrate.Formatter, error) {
 	case formatDBMate:
 		return sqltool.DBMateFormatter, nil
 	default:
-		return nil, fmt.Errorf("unknown format %q", MigrateFlags.DirFormat)
+		return nil, fmt.Errorf("unknown format %q", f)
 	}
 }
 

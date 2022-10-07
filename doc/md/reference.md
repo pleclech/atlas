@@ -24,26 +24,6 @@ If you would like to build Atlas from source without the UI code run:
 go get ariga.io/atlas/cmd/atlas
 ```
 
-## atlas env
-
-Print atlas environment variables.
-
-#### Usage
-```
-atlas env
-```
-
-#### Details
-'atlas env' prints atlas environment information.
-
-Every set environment param will be printed in the form of NAME=VALUE.
-
-List of supported environment parameters:
-* ATLAS_NO_UPDATE_NOTIFIER: On any command, the CLI will check for new releases using the GitHub API.
-  This check will happen at most once every 24 hours. To cancel this behavior, set the environment 
-  variable "ATLAS_NO_UPDATE_NOTIFIER".
-
-
 ## atlas license
 
 Display license information
@@ -69,8 +49,9 @@ atlas migrate
 #### Flags
 ```
       --dir string           select migration directory using URL format (default "file://migrations")
+      --dir-format string    set migration file format (default "atlas")
       --env string           set which env from the project file to use
-      --var stringToString   input variables (default [])
+      --var <name>=<value>   input variables (default [])
 
 ```
 
@@ -178,7 +159,7 @@ atlas migrate import [flags]
 #### Example
 
 ```
-  atlas migrate import --dir-format liquibase --from file:///path/to/source/directory --to file:///path/to/migration/directory
+  atlas migrate import --from file:///path/to/source/directory?format=liquibase --to file:///path/to/migration/directory
 ```
 #### Flags
 ```
@@ -281,6 +262,7 @@ atlas migrate status [flags]
 ```
 #### Flags
 ```
+      --log string                custom logging using a Go template
       --revisions-schema string   schema name where the revisions table resides
   -u, --url string                [driver://username:password@address/dbname?param=value] select a database using the URL format
 
@@ -331,7 +313,7 @@ The `atlas schema` command groups subcommands for working with Atlas schemas.
 #### Flags
 ```
       --env string           set which env from the project file to use
-      --var stringToString   input variables (default [])
+      --var <name>=<value>   input variables (default [])
 
 ```
 

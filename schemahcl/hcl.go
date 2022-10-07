@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/ext/dynblock"
+	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -30,10 +32,10 @@ type (
 	// Evaluator is the interface that wraps the Eval function.
 	Evaluator interface {
 		// Eval evaluates parsed HCL files using input variables into a schema.Realm.
-		Eval(*hclparse.Parser, any, map[string]string) error
+		Eval(*hclparse.Parser, any, map[string]cty.Value) error
 	}
 	// EvalFunc is an adapter that allows the use of an ordinary function as an Evaluator.
-	EvalFunc func(*hclparse.Parser, any, map[string]string) error
+	EvalFunc func(*hclparse.Parser, any, map[string]cty.Value) error
 	// Marshaler is the interface that wraps the MarshalSpec function.
 	Marshaler interface {
 		// MarshalSpec marshals the provided input into a valid Atlas HCL document.
@@ -55,7 +57,7 @@ func (s *State) MarshalSpec(v any) ([]byte, error) {
 
 // EvalFiles evaluates the files in the provided paths using the input variables and
 // populates v with the result.
-func (s *State) EvalFiles(paths []string, v any, input map[string]string) error {
+func (s *State) EvalFiles(paths []string, v any, input map[string]cty.Value) error {
 	parser := hclparse.NewParser()
 	for _, path := range paths {
 		if _, diag := parser.ParseHCLFile(path); diag.HasErrors() {
@@ -67,7 +69,7 @@ func (s *State) EvalFiles(paths []string, v any, input map[string]string) error 
 
 // Eval evaluates the parsed HCL documents using the input variables and populates v
 // using the result.
-func (s *State) Eval(parsed *hclparse.Parser, v any, input map[string]string) error {
+func (s *State) Eval(parsed *hclparse.Parser, v any, input map[string]cty.Value) error {
 	ctx := s.config.newCtx()
 	reg := &blockDef{
 		fields:   make(map[string]struct{}),
@@ -126,7 +128,7 @@ func (s *State) Eval(parsed *hclparse.Parser, v any, input map[string]string) er
 
 // EvalBytes evaluates the data byte-slice as an Atlas HCL document using the input variables
 // and stores the result in v.
-func (s *State) EvalBytes(data []byte, v any, input map[string]string) error {
+func (s *State) EvalBytes(data []byte, v any, input map[string]cty.Value) error {
 	parser := hclparse.NewParser()
 	if _, diag := parser.ParseHCL(data, ""); diag.HasErrors() {
 		return diag
@@ -220,11 +222,33 @@ func (s *State) resource(ctx *hcl.EvalContext, file *hcl.File) (*Resource, error
 		if err != nil {
 			return nil, err
 		}
-		resource, err := s.toResource(ctx, blk, []string{blk.Type})
-		if err != nil {
-			return nil, err
+		switch {
+		case blk.Body != nil && blk.Body.Attributes[forEachAttr] != nil:
+			forEach, diags := blk.Body.Attributes[forEachAttr].Expr.Value(ctx)
+			if diags.HasErrors() {
+				return nil, diags
+			}
+			if t := forEach.Type(); !t.IsSetType() && !t.IsObjectType() {
+				return nil, fmt.Errorf("schemahcl: for_each does not support %s type", t.FriendlyName())
+			}
+			delete(blk.Body.Attributes, forEachAttr)
+			// Iterate over the set and create a resource for each element.
+			for it := forEach.ElementIterator(); it.Next(); {
+				k, v := it.Element()
+				ctx.Variables["each"] = cty.ObjectVal(map[string]cty.Value{"key": k, "value": v})
+				resource, err := s.toResource(ctx, blk, []string{blk.Type})
+				if err != nil {
+					return nil, err
+				}
+				res.Children = append(res.Children, resource)
+			}
+		default:
+			resource, err := s.toResource(ctx, blk, []string{blk.Type})
+			if err != nil {
+				return nil, err
+			}
+			res.Children = append(res.Children, resource)
 		}
-		res.Children = append(res.Children, resource)
 	}
 	return res, nil
 }
@@ -261,7 +285,7 @@ func (s *State) toAttrs(ctx *hcl.EvalContext, hclAttrs hclsyntax.Attributes, sco
 		case value.Type().IsTupleType():
 			at.V, err = extractListValue(value)
 		default:
-			at.V, err = extractLiteralValue(value)
+			at.V, err = extractValue(value)
 		}
 		if err != nil {
 			return nil, err
@@ -311,7 +335,7 @@ func extractListValue(value cty.Value) (*ListValue, error) {
 			lst.V = append(lst.V, &Ref{V: v.GetAttr("__ref").AsString()})
 			continue
 		}
-		litv, err := extractLiteralValue(v)
+		litv, err := extractValue(v)
 		if err != nil {
 			return nil, err
 		}
@@ -320,7 +344,7 @@ func extractListValue(value cty.Value) (*ListValue, error) {
 	return lst, nil
 }
 
-func extractLiteralValue(value cty.Value) (*LiteralValue, error) {
+func extractValue(value cty.Value) (Value, error) {
 	switch value.Type() {
 	case ctySchemaLit:
 		return value.EncapsulatedValue().(*LiteralValue), nil
@@ -332,6 +356,17 @@ func extractLiteralValue(value cty.Value) (*LiteralValue, error) {
 		return &LiteralValue{V: strconv.FormatFloat(num, 'f', -1, 64)}, nil
 	case cty.Bool:
 		return &LiteralValue{V: strconv.FormatBool(value.True())}, nil
+	case cty.List(cty.String), cty.List(cty.Number), cty.List(cty.Bool):
+		l := &ListValue{V: make([]Value, 0, value.LengthInt())}
+		for it := value.ElementIterator(); it.Next(); {
+			_, v := it.Element()
+			ev, err := extractValue(v)
+			if err != nil {
+				return nil, err
+			}
+			l.V = append(l.V, ev)
+		}
+		return l, nil
 	default:
 		return nil, fmt.Errorf("schemahcl: unsupported type %q", value.Type().GoString())
 	}
@@ -359,16 +394,42 @@ func (s *State) toResource(ctx *hcl.EvalContext, block *hclsyntax.Block, scope [
 	}
 	spec.Attrs = attrs
 	for _, blk := range block.Body.Blocks {
-		res, err := s.toResource(ctx, blk, append(scope, blk.Type))
-		if err != nil {
-			return nil, err
+		switch blk.Type {
+		case dynamicBlock:
+			dec, err := dynamicSpec(blk)
+			if err != nil {
+				return nil, err
+			}
+			v, _, diag := hcldec.PartialDecode(dynblock.Expand(block.Body, ctx), dec, ctx)
+			if diag.HasErrors() {
+				return nil, diag
+			}
+			for _, e := range v.GetAttr(blk.Labels[0]).AsValueSlice() {
+				r := &Resource{Type: blk.Labels[0]}
+				for k, v := range e.AsValueMap() {
+					av, err := extractValue(v)
+					if err != nil {
+						return nil, err
+					}
+					r.Attrs = append(r.Attrs, &Attr{
+						K: k,
+						V: av,
+					})
+				}
+				spec.Children = append(spec.Children, r)
+			}
+		default:
+			r, err := s.toResource(ctx, blk, append(scope, blk.Type))
+			if err != nil {
+				return nil, err
+			}
+			spec.Children = append(spec.Children, r)
 		}
-		spec.Children = append(spec.Children, res)
 	}
 	return spec, nil
 }
 
-// encode encodes the give *schemahcl.Resource into a byte slice containing an Atlas HCL
+// encode the given *schemahcl.Resource into a byte slice containing an Atlas HCL
 // document representing it.
 func (s *State) encode(r *Resource) ([]byte, error) {
 	f := hclwrite.NewFile()
@@ -598,6 +659,31 @@ func hclList(items []hclwrite.Tokens) hclwrite.Tokens {
 }
 
 // Eval implements the Evaluator interface.
-func (f EvalFunc) Eval(p *hclparse.Parser, i any, input map[string]string) error {
+func (f EvalFunc) Eval(p *hclparse.Parser, i any, input map[string]cty.Value) error {
 	return f(p, i, input)
+}
+
+func dynamicSpec(b *hclsyntax.Block) (hcldec.Spec, error) {
+	switch {
+	case len(b.Labels) != 1:
+		return nil, fmt.Errorf("unexpected number of labels for 'dynamic' block: %d", len(b.Labels))
+	case b.Body == nil || len(b.Body.Attributes) != 1 || b.Body.Attributes["for_each"] == nil:
+		return nil, fmt.Errorf("expect a single 'for_each' attribute on 'dynamic' block: %q", b.Labels[0])
+	case len(b.Body.Blocks) != 1 || b.Body.Blocks[0].Type != "content" || b.Body.Blocks[0].Body == nil:
+		return nil, fmt.Errorf("expect a non-empty 'content' block on 'dynamic' block: %q", b.Labels[0])
+	}
+	attrs := make(hcldec.ObjectSpec)
+	for name := range b.Body.Blocks[0].Body.Attributes {
+		attrs[name] = &hcldec.AttrSpec{
+			Name:     name,
+			Required: true,
+			Type:     cty.DynamicPseudoType,
+		}
+	}
+	return &hcldec.ObjectSpec{
+		b.Labels[0]: &hcldec.BlockListSpec{
+			TypeName: b.Labels[0],
+			Nested:   attrs,
+		},
+	}, nil
 }

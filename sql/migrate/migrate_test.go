@@ -21,6 +21,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRevisionType_MarshalText(t *testing.T) {
+	for _, tt := range []struct {
+		r       migrate.RevisionType
+		ex      string
+		wantErr bool
+	}{
+		{migrate.RevisionTypeUnknown, "", true},
+		{migrate.RevisionTypeBaseline, "baseline", false},
+		{migrate.RevisionTypeExecute, "applied", false},
+		{migrate.RevisionTypeResolved, "manually set", false},
+		{migrate.RevisionTypeExecute | migrate.RevisionTypeResolved, "applied + manually set", false},
+		{migrate.RevisionTypeExecute | migrate.RevisionTypeBaseline, "", true},
+		{1 << 3, "", true},
+	} {
+		ac, err := tt.r.MarshalText()
+		if tt.wantErr {
+			require.Error(t, err)
+			require.Zero(t, ac)
+			continue
+		}
+		require.NoError(t, err)
+		require.Equal(t, tt.ex, string(ac))
+	}
+}
+
 func TestPlanner_WritePlan(t *testing.T) {
 	p := t.TempDir()
 	d, err := migrate.NewLocalDir(p)
@@ -122,13 +147,14 @@ func TestPlanner_PlanSchema(t *testing.T) {
 
 func TestExecutor_Replay(t *testing.T) {
 	ctx := context.Background()
-	d, err := migrate.NewLocalDir("testdata/migrate")
+	d, err := migrate.NewLocalDir(filepath.FromSlash("testdata/migrate"))
 	require.NoError(t, err)
 
 	drv := &mockDriver{}
 	ex, err := migrate.NewExecutor(drv, d, migrate.NopRevisionReadWriter{})
 	require.NoError(t, err)
 
+	// No options.
 	_, err = ex.Replay(ctx, migrate.RealmConn(drv, nil))
 	require.NoError(t, err)
 	require.Equal(t, []string{"DROP TABLE IF EXISTS t;", "CREATE TABLE t(c int);"}, drv.executed)
@@ -293,7 +319,7 @@ func TestExecutor(t *testing.T) {
 			OperatorVersion: "op",
 		}
 	)
-	dir, err = migrate.NewLocalDir(filepath.Join("testdata/migrate", "sub"))
+	dir, err = migrate.NewLocalDir(filepath.Join("testdata", "migrate", "sub"))
 	require.NoError(t, err)
 	ex, err = migrate.NewExecutor(drv, dir, rrw, migrate.WithLogger(log), migrate.WithOperatorVersion("op"))
 	require.NoError(t, err)
@@ -367,7 +393,8 @@ func TestExecutor(t *testing.T) {
 		Type:            migrate.RevisionTypeExecute,
 		Applied:         1,
 		Total:           2,
-		Error:           "Statement:\nALTER TABLE t_sub ADD c4 int;\n\nError:\nthis is an error",
+		Error:           "this is an error",
+		ErrorStmt:       "ALTER TABLE t_sub ADD c4 int;",
 		OperatorVersion: "op",
 	}, revs[len(revs)-1])
 

@@ -39,13 +39,40 @@ func TestMigrate(t *testing.T) {
 func TestMigrate_Import(t *testing.T) {
 	for _, tool := range []string{"dbmate", "flyway", "golang-migrate", "goose", "liquibase"} {
 		p := t.TempDir()
-		t.Run(tool, func(t *testing.T) {
+		t.Run(tool, func(t *testing.T) { // remove this once --dir-format is removed. Test is kept to ensure BC.
 			path := filepath.FromSlash("testdata/import/" + tool)
 			out, err := runCmd(
 				Root, "migrate", "import",
 				"--from", "file://"+path,
 				"--to", "file://"+p,
 				"--dir-format", tool,
+			)
+			require.NoError(t, err)
+			require.Zero(t, out)
+
+			path += "_gold"
+			ex, err := os.ReadDir(path)
+			require.NoError(t, err)
+			ac, err := os.ReadDir(p)
+			require.NoError(t, err)
+			require.Equal(t, len(ex)+1, len(ac)) // sum file
+
+			for i := range ex {
+				e, err := os.ReadFile(filepath.Join(path, ex[i].Name()))
+				require.NoError(t, err)
+				a, err := os.ReadFile(filepath.Join(p, ex[i].Name()))
+				require.NoError(t, err)
+
+				require.Equal(t, string(e), string(a))
+			}
+		})
+		p = t.TempDir()
+		t.Run(tool, func(t *testing.T) {
+			path := filepath.FromSlash("testdata/import/" + tool)
+			out, err := runCmd(
+				Root, "migrate", "import",
+				"--from", fmt.Sprintf("file://%s?format=%s", path, tool),
+				"--to", "file://"+p,
 			)
 			require.NoError(t, err)
 			require.Zero(t, out)
@@ -395,8 +422,46 @@ func TestMigrate_ApplyTxMode(t *testing.T) {
 				"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test.db")),
 				"--tx-mode", mode,
 			)
+			require.NoError(t, err)
 			require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM `friendships`").Scan(&n))
 			require.Equal(t, 2, n)
+
+			// For transactions check that the foreign keys are checked before the transaction is committed.
+			if mode != "none" {
+				// Apply the first 2 migrations for the faulty one.
+				s, err = runCmd(
+					Root, "migrate", "apply",
+					"--dir", "file://testdata/sqlitetx_2",
+					"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test_2.db")),
+					"--tx-mode", mode,
+					"2",
+				)
+				require.NoError(t, err)
+				require.NotEmpty(t, s)
+				db, err = sql.Open("sqlite3", fmt.Sprintf("file:%s?cache=shared&_fk=1", filepath.Join(p, "test_2.db")))
+				require.NoError(t, err)
+				require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM `friendships`").Scan(&n))
+				require.Equal(t, 2, n)
+
+				// Add an existing constraint.
+				c, err := sqlclient.Open(context.Background(), fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test_2.db")))
+				require.NoError(t, err)
+				_, err = c.ExecContext(context.Background(), "PRAGMA foreign_keys = off; INSERT INTO `friendships` (`user_id`, `friend_id`) VALUES (3,3);PRAGMA foreign_keys = on;")
+				require.NoError(t, err)
+				require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM `friendships`").Scan(&n))
+				require.Equal(t, 3, n)
+
+				// Apply the rest, expect it to fail due to constraint error, but only the new one is reported.
+				s, err = runCmd(
+					Root, "migrate", "apply",
+					"--dir", "file://testdata/sqlitetx_2",
+					"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test_2.db")),
+					"--tx-mode", mode,
+				)
+				require.EqualError(t, err, "sql/sqlite: foreign key mismatch: [{tbl:friendships ref:users row:4 index:1}]")
+				require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM `friendships`").Scan(&n))
+				require.Equal(t, 3, n) // was rolled back
+			}
 		})
 	}
 }
@@ -465,7 +530,8 @@ func TestMigrate_Diff(t *testing.T) {
 
 	// A lock will prevent diffing.
 	sqlclient.Register("sqlitelockdiff", sqlclient.OpenerFunc(func(ctx context.Context, u *url.URL) (*sqlclient.Client, error) {
-		client, err := sqlclient.Open(ctx, strings.Replace(u.String(), u.Scheme, "sqlite", 1))
+		u.Scheme = "sqlite"
+		client, err := sqlclient.OpenURL(ctx, u)
 		if err != nil {
 			return nil, err
 		}
@@ -515,14 +581,14 @@ func TestMigrate_New(t *testing.T) {
 	require.Equal(t, 3, countFiles(t, p))
 
 	p = t.TempDir()
-	s, err = runCmd(Root, "migrate", "new", "goose", "--dir", "file://"+p, "--dir-format", formatGoose)
+	s, err = runCmd(Root, "migrate", "new", "goose", "--dir", "file://"+p+"?format="+formatGoose)
 	require.Zero(t, s)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(p, v+"_goose.sql"))
 	require.Equal(t, 2, countFiles(t, p))
 
 	p = t.TempDir()
-	s, err = runCmd(Root, "migrate", "new", "flyway", "--dir", "file://"+p, "--dir-format", formatFlyway)
+	s, err = runCmd(Root, "migrate", "new", "flyway", "--dir", "file://"+p+"?format="+formatFlyway)
 	require.Zero(t, s)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(p, fmt.Sprintf("V%s__%s.sql", v, formatFlyway)))
@@ -530,14 +596,14 @@ func TestMigrate_New(t *testing.T) {
 	require.Equal(t, 3, countFiles(t, p))
 
 	p = t.TempDir()
-	s, err = runCmd(Root, "migrate", "new", "liquibase", "--dir", "file://"+p, "--dir-format", formatLiquibase)
+	s, err = runCmd(Root, "migrate", "new", "liquibase", "--dir", "file://"+p+"?format="+formatLiquibase)
 	require.Zero(t, s)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(p, v+"_liquibase.sql"))
 	require.Equal(t, 2, countFiles(t, p))
 
 	p = t.TempDir()
-	s, err = runCmd(Root, "migrate", "new", "dbmate", "--dir", "file://"+p, "--dir-format", formatDBMate)
+	s, err = runCmd(Root, "migrate", "new", "dbmate", "--dir", "file://"+p+"?format="+formatDBMate)
 	require.Zero(t, s)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(p, v+"_dbmate.sql"))
@@ -662,8 +728,7 @@ func TestMigrate_Lint(t *testing.T) {
 	require.NoError(t, os.Rename(filepath.Join(p, "2.sql"), filepath.Join(p, "1.down.sql")))
 	s, err = runCmd(
 		Root, "migrate", "lint",
-		"--dir", "file://"+p,
-		"--dir-format", "golang-migrate",
+		"--dir", "file://"+p+"?format="+formatGolangMigrate,
 		"--dev-url", openSQLite(t, ""),
 		"--latest", "2",
 		"--log", "{{ range .Files }}{{ .Name }}:{{ len .Reports }}{{ end }}",
@@ -677,8 +742,7 @@ func TestMigrate_Lint(t *testing.T) {
 	require.NoError(t, err)
 	s, err = runCmd(
 		Root, "migrate", "lint",
-		"--dir", "file://"+p,
-		"--dir-format", "golang-migrate",
+		"--dir", "file://"+p+"?format="+formatGolangMigrate,
 		"--dev-url", openSQLite(t, ""),
 		"--latest", "1",
 	)

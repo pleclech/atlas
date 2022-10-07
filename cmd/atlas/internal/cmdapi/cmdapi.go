@@ -7,13 +7,12 @@
 package cmdapi
 
 import (
+	"encoding/csv"
 	"fmt"
-	"os"
 	"strings"
 
-	"ariga.io/atlas/cmd/atlas/internal/update"
-
 	"github.com/spf13/cobra"
+	"github.com/zclconf/go-cty/cty"
 	"golang.org/x/mod/semver"
 )
 
@@ -32,7 +31,7 @@ var (
 		SelectedEnv string
 		// Vars contains the input variables passed from the CLI to
 		// Atlas DDL or project files.
-		Vars map[string]string
+		Vars Vars
 	}
 
 	// version holds Atlas version. When built with cloud packages
@@ -45,29 +44,7 @@ var (
 		Short: "Prints this Atlas CLI version information.",
 		Run: func(cmd *cobra.Command, args []string) {
 			v, u := parse(version)
-			Root.Printf("atlas version %s\n%s\n", v, u)
-		},
-	}
-
-	// EnvCmd represents the subcommand 'atlas env'.
-	EnvCmd = &cobra.Command{
-		Use:   "env",
-		Short: "Print atlas environment variables.",
-		Long: `'atlas env' prints atlas environment information.
-
-Every set environment param will be printed in the form of NAME=VALUE.
-
-List of supported environment parameters:
-* ATLAS_NO_UPDATE_NOTIFIER: On any command, the CLI will check for new releases using the GitHub API.
-  This check will happen at most once every 24 hours. To cancel this behavior, set the environment 
-  variable "ATLAS_NO_UPDATE_NOTIFIER".`,
-		Run: func(cmd *cobra.Command, args []string) {
-			keys := []string{update.AtlasNoUpdateNotifier}
-			for _, k := range keys {
-				if v, ok := os.LookupEnv(k); ok {
-					cmd.Println(fmt.Sprintf("%s=%s", k, v))
-				}
-			}
+			cmd.Printf("atlas version %s\n%s\n", v, u)
 		},
 	}
 
@@ -84,13 +61,7 @@ Atlas is licensed under Apache 2.0 as found in https://github.com/ariga/atlas/bl
 	}
 )
 
-// CheckForUpdate exposes internal update logic to CLI.
-func CheckForUpdate() {
-	update.Check(version, Root.PrintErrln)
-}
-
 func init() {
-	Root.AddCommand(EnvCmd)
 	Root.AddCommand(schemaCmd)
 	Root.AddCommand(versionCmd)
 	Root.AddCommand(licenseCmd)
@@ -99,7 +70,7 @@ func init() {
 // receivesEnv configures cmd to receive the common '--env' flag.
 func receivesEnv(cmd *cobra.Command) {
 	cmd.PersistentFlags().StringVarP(&GlobalFlags.SelectedEnv, "env", "", "", "set which env from the project file to use")
-	cmd.PersistentFlags().StringToStringVarP(&GlobalFlags.Vars, varFlag, "", nil, "input variables")
+	cmd.PersistentFlags().VarP(&GlobalFlags.Vars, varFlag, "", "input variables")
 }
 
 // inputValsFromEnv populates GlobalFlags.Vars from the active environment. If we are working
@@ -143,4 +114,56 @@ func parse(version string) (string, string) {
 		u = fmt.Sprintf("https://github.com/ariga/atlas/releases/tag/%s", version)
 	}
 	return version, u
+}
+
+// Version returns the current Atlas binary version.
+func Version() string {
+	return version
+}
+
+// Vars implements pflag.Value.
+type Vars map[string]cty.Value
+
+// String implements pflag.Value.String.
+func (v Vars) String() string {
+	var b strings.Builder
+	for k := range v {
+		if b.Len() > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(k)
+		b.WriteString(":")
+		b.WriteString(v[k].GoString())
+	}
+	return "[" + b.String() + "]"
+}
+
+// Set implements pflag.Value.Set.
+func (v *Vars) Set(s string) error {
+	if *v == nil {
+		*v = make(Vars)
+	}
+	kvs, err := csv.NewReader(strings.NewReader(s)).Read()
+	if err != nil {
+		return err
+	}
+	for i := range kvs {
+		kv := strings.SplitN(kvs[i], "=", 2)
+		if len(kv) != 2 {
+			return fmt.Errorf("variables must be format as key=value, got: %q", kvs[i])
+		}
+		v1 := cty.StringVal(kv[1])
+		switch v2, ok := (*v)[kv[0]]; {
+		case ok:
+			(*v)[kv[0]] = cty.ListVal([]cty.Value{v1, v2})
+		default:
+			(*v)[kv[0]] = v1
+		}
+	}
+	return nil
+}
+
+// Type implements pflag.Value.Type.
+func (v *Vars) Type() string {
+	return "<name>=<value>"
 }
