@@ -98,7 +98,7 @@ type (
 		Name    string         `spec:",name"`
 		Type    string         `spec:"type"`
 		Event   string         `spec:"event"`
-		ForEach string         `spec:"for_each"`
+		ForEach string         `spec:"per"`
 		Execute *schemahcl.Ref `spec:"execute"`
 		schemahcl.DefaultExtension
 	}
