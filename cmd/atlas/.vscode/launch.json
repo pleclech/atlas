@@ -1,0 +1,42 @@
+{
+    // Utilisez IntelliSense pour en savoir plus sur les attributs possibles.
+    // Pointez pour afficher la description des attributs existants.
+    // Pour plus d'informations, visitez : https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Atlas schema inspect",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/main.go",
+            "args": [
+                "schema",
+                "inspect",
+                "-u",
+                "postgres://atlas-admin:Eos%2FXMV=RWC%29_Z.%2Aa%3AT%7DS1=%28@127.0.0.1:54958/staging",
+                "-s",
+                "foo"
+            ]
+        },
+        {
+            "name": "Atlas schema apply",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/main.go",
+            "args": [
+                "schema",
+                "apply",
+                "-f",
+                "test.hcl",
+                "--dev-url",
+                "postgres://atlas-admin:Eos%2FXMV=RWC%29_Z.%2Aa%3AT%7DS1=%28@127.0.0.1:54958/test",
+                "-u",
+                "postgres://atlas-admin:Eos%2FXMV=RWC%29_Z.%2Aa%3AT%7DS1=%28@127.0.0.1:54958/staging",
+                "-s",
+                "test"
+            ]
+        }
+    ]
+}

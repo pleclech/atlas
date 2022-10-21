@@ -159,6 +159,31 @@ func TestExecutor_Replay(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"DROP TABLE IF EXISTS t;", "CREATE TABLE t(c int);"}, drv.executed)
 
+	// ReplayVersion option.
+	*drv = mockDriver{}
+	dir, err := migrate.NewLocalDir(filepath.FromSlash("testdata/migrate/sub"))
+	require.NoError(t, err)
+	*d = *dir
+	_, err = ex.Replay(ctx, migrate.RealmConn(drv, nil), migrate.ReplayToVersion("0"))
+	require.ErrorContains(t, err, "migration with version \"0\" not found")
+	require.Zero(t, drv.executed)
+
+	*drv = mockDriver{}
+	_, err = ex.Replay(ctx, migrate.RealmConn(drv, nil), migrate.ReplayToVersion("1.a"))
+	require.NoError(t, err)
+	require.Equal(t, []string{"CREATE TABLE t_sub(c int);", "ALTER TABLE t_sub ADD c1 int;"}, drv.executed)
+
+	*drv = mockDriver{}
+	_, err = ex.Replay(ctx, migrate.RealmConn(drv, nil), migrate.ReplayToVersion("3"))
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"CREATE TABLE t_sub(c int);",
+		"ALTER TABLE t_sub ADD c1 int;",
+		"ALTER TABLE t_sub ADD c2 int;",
+		"ALTER TABLE t_sub ADD c3 int;",
+		"ALTER TABLE t_sub ADD c4 int;",
+	}, drv.executed)
+
 	// Does not work if database is not clean.
 	drv.dirty = true
 	drv.realm = schema.Realm{Schemas: []*schema.Schema{{Name: "schema"}}}
@@ -294,6 +319,7 @@ func TestExecutor(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ex)
 	require.ErrorIs(t, ex.ExecuteN(context.Background(), 0), migrate.ErrChecksumMismatch)
+	require.ErrorIs(t, ex.ExecuteTo(context.Background(), ""), migrate.ErrChecksumMismatch)
 
 	// Prerequisites.
 	var (
@@ -330,15 +356,18 @@ func TestExecutor(t *testing.T) {
 		"CREATE TABLE t_sub(c int);", "ALTER TABLE t_sub ADD c1 int;", "ALTER TABLE t_sub ADD c2 int;",
 	})
 	requireEqualRevisions(t, []*migrate.Revision{rev1, rev2}, *rrw)
-	require.Equal(t, []migrate.LogEntry{
-		migrate.LogExecution{To: "2.10.x-20", Files: []string{"1.a_sub.up.sql", "2.10.x-20_description.sql"}},
-		migrate.LogFile{Version: "1.a", Desc: "sub.up"},
-		migrate.LogStmt{SQL: "CREATE TABLE t_sub(c int);"},
-		migrate.LogStmt{SQL: "ALTER TABLE t_sub ADD c1 int;"},
-		migrate.LogFile{Version: "2.10.x-20", Desc: "description"},
-		migrate.LogStmt{SQL: "ALTER TABLE t_sub ADD c2 int;"},
-		migrate.LogDone{},
-	}, []migrate.LogEntry(*log))
+	require.Len(t, *log, 7)
+	require.IsType(t, migrate.LogExecution{}, (*log)[0])
+	require.Equal(t, "2.10.x-20", (*log)[0].(migrate.LogExecution).To)
+	require.Len(t, (*log)[0].(migrate.LogExecution).Files, 2)
+	require.Equal(t, "1.a_sub.up.sql", (*log)[0].(migrate.LogExecution).Files[0].Name())
+	require.Equal(t, "2.10.x-20_description.sql", (*log)[0].(migrate.LogExecution).Files[1].Name())
+	require.IsType(t, migrate.LogFile{}, (*log)[1])
+	require.Equal(t, migrate.LogStmt{SQL: "CREATE TABLE t_sub(c int);"}, (*log)[2])
+	require.Equal(t, migrate.LogStmt{SQL: "ALTER TABLE t_sub ADD c1 int;"}, (*log)[3])
+	require.IsType(t, migrate.LogFile{}, (*log)[4])
+	require.Equal(t, migrate.LogStmt{SQL: "ALTER TABLE t_sub ADD c2 int;"}, (*log)[5])
+	require.Equal(t, migrate.LogDone{}, (*log)[6])
 
 	// Partly is pending.
 	p, err := ex.Pending(context.Background())
@@ -411,6 +440,13 @@ func TestExecutor(t *testing.T) {
 
 	// Everything is applied.
 	require.ErrorIs(t, ex.ExecuteN(context.Background(), 0), migrate.ErrNoPendingFiles)
+
+	// Test ExecuteTo.
+	*rrw = []*migrate.Revision{}
+	*drv = mockDriver{}
+	require.EqualError(t, ex.ExecuteTo(context.Background(), ""), "sql/migrate: execute: migration with version \"\" not found")
+	require.NoError(t, ex.ExecuteTo(context.Background(), "2.10.x-20"))
+	requireEqualRevisions(t, []*migrate.Revision{rev1, rev2}, *rrw)
 }
 
 func TestExecutor_Baseline(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"reflect"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
@@ -20,6 +21,7 @@ type (
 		types    []*TypeSpec
 		newCtx   func() *hcl.EvalContext
 		pathVars map[string]map[string]cty.Value
+		datasrc  map[string]func(*hcl.EvalContext, *hclsyntax.Block) (cty.Value, error)
 	}
 
 	// Option configures a Config.
@@ -31,10 +33,10 @@ func New(opts ...Option) *State {
 	cfg := &Config{
 		pathVars: make(map[string]map[string]cty.Value),
 		newCtx: func() *hcl.EvalContext {
-			return &hcl.EvalContext{
+			return stdTypes(&hcl.EvalContext{
 				Functions: stdFuncs(),
 				Variables: make(map[string]cty.Value),
-			}
+			})
 		},
 	}
 	for _, opt := range opts {
@@ -67,13 +69,41 @@ func WithScopedEnums(path string, enums ...string) Option {
 	}
 }
 
+// WithDataSource registers a data source name and its corresponding handler.
+// e.g., the example below registers a data source named "text" that returns
+// the string defined in the data source block.
+//
+//	WithDataSource("text", func(ctx *hcl.EvalContext, b *hclsyntax.Block) (cty.Value, hcl.Diagnostics) {
+//		attrs, diags := b.Body.JustAttributes()
+//		if diags.HasErrors() {
+//			return cty.NilVal, diags
+//		}
+//		v, diags := attrs["value"].Expr.Value(ctx)
+//		if diags.HasErrors() {
+//			return cty.NilVal, diags
+//		}
+//		return cty.ObjectVal(map[string]cty.Value{"output": v}), nil
+//	}),
+//
+//	data "text" "hello" {
+//	  value = "hello world"
+//	}
+func WithDataSource(name string, h func(*hcl.EvalContext, *hclsyntax.Block) (cty.Value, error)) Option {
+	return func(c *Config) {
+		if c.datasrc == nil {
+			c.datasrc = make(map[string]func(*hcl.EvalContext, *hclsyntax.Block) (cty.Value, error))
+		}
+		c.datasrc[name] = h
+	}
+}
+
 // WithTypes configures the list of given types as identifiers in the unmarshaling context.
 func WithTypes(typeSpecs []*TypeSpec) Option {
 	newCtx := func() *hcl.EvalContext {
-		ctx := &hcl.EvalContext{
+		ctx := stdTypes(&hcl.EvalContext{
+			Functions: stdFuncs(),
 			Variables: make(map[string]cty.Value),
-			Functions: make(map[string]function.Function),
-		}
+		})
 		for _, ts := range typeSpecs {
 			typeSpec := ts
 			// If no required args exist, register the type as a variable in the HCL context.
@@ -89,9 +119,9 @@ func WithTypes(typeSpecs []*TypeSpec) Option {
 		ctx.Functions["sql"] = rawExprImpl()
 		return ctx
 	}
-	return func(config *Config) {
-		config.newCtx = newCtx
-		config.types = append(config.types, typeSpecs...)
+	return func(c *Config) {
+		c.newCtx = newCtx
+		c.types = append(c.types, typeSpecs...)
 	}
 }
 

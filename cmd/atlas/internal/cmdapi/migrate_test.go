@@ -32,7 +32,7 @@ import (
 )
 
 func TestMigrate(t *testing.T) {
-	_, err := runCmd(Root, "migrate")
+	_, err := runCmd(migrateCmd())
 	require.NoError(t, err)
 }
 
@@ -42,7 +42,7 @@ func TestMigrate_Import(t *testing.T) {
 		t.Run(tool, func(t *testing.T) { // remove this once --dir-format is removed. Test is kept to ensure BC.
 			path := filepath.FromSlash("testdata/import/" + tool)
 			out, err := runCmd(
-				Root, "migrate", "import",
+				migrateImportCmd(),
 				"--from", "file://"+path,
 				"--to", "file://"+p,
 				"--dir-format", tool,
@@ -62,7 +62,6 @@ func TestMigrate_Import(t *testing.T) {
 				require.NoError(t, err)
 				a, err := os.ReadFile(filepath.Join(p, ex[i].Name()))
 				require.NoError(t, err)
-
 				require.Equal(t, string(e), string(a))
 			}
 		})
@@ -70,7 +69,7 @@ func TestMigrate_Import(t *testing.T) {
 		t.Run(tool, func(t *testing.T) {
 			path := filepath.FromSlash("testdata/import/" + tool)
 			out, err := runCmd(
-				Root, "migrate", "import",
+				migrateImportCmd(),
 				"--from", fmt.Sprintf("file://%s?format=%s", path, tool),
 				"--to", "file://"+p,
 			)
@@ -89,7 +88,6 @@ func TestMigrate_Import(t *testing.T) {
 				require.NoError(t, err)
 				a, err := os.ReadFile(filepath.Join(p, ex[i].Name()))
 				require.NoError(t, err)
-
 				require.Equal(t, string(e), string(a))
 			}
 		})
@@ -107,7 +105,7 @@ func TestMigrate_Apply(t *testing.T) {
 
 	// Fails on empty directory.
 	s, err := runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://"+p,
 		"-u", openSQLite(t, ""),
 	)
@@ -124,7 +122,7 @@ func TestMigrate_Apply(t *testing.T) {
 	})
 
 	_, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite",
 		"--url", openSQLite(t, ""),
 	)
@@ -158,7 +156,7 @@ func TestMigrate_Apply(t *testing.T) {
 	require.NoError(t, f.Close())
 
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite",
 		"--url", fmt.Sprintf("sqlitelockapply://file:%s?cache=shared&_fk=1", filepath.Join(p, "test.db")),
 	)
@@ -168,7 +166,7 @@ func TestMigrate_Apply(t *testing.T) {
 	// Apply zero throws error.
 	for _, n := range []string{"-1", "0"} {
 		_, err = runCmd(
-			Root, "migrate", "apply",
+			migrateApplyCmd(),
 			"--dir", "file://testdata/sqlite",
 			"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test.db")),
 			"--", n,
@@ -178,7 +176,7 @@ func TestMigrate_Apply(t *testing.T) {
 
 	// Will work and print stuff to the console.
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test.db")),
 		"1",
@@ -192,7 +190,7 @@ func TestMigrate_Apply(t *testing.T) {
 
 	// Transactions will be wrapped per file. If the second file has an error, first still is applied.
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite2",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test2.db")),
 	)
@@ -204,7 +202,6 @@ func TestMigrate_Apply(t *testing.T) {
 	require.NotContains(t, s, "ALTER TABLE `tbl` ADD `col_4` bigint;") // but not third
 	require.Contains(t, s, "1 migrations ok (1 with errors)")          // logs amount of migrations
 	require.Contains(t, s, "2 sql statements ok (1 with errors)")      // logs amount of statement
-	require.Contains(t, s, "Error: Execution had errors:")             // logs error summary
 	require.Contains(t, s, "near \"asdasd\": syntax error")            // logs error summary
 
 	c, err := sqlclient.Open(ctx, fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test2.db")))
@@ -227,7 +224,7 @@ func TestMigrate_Apply(t *testing.T) {
 
 	// Running again will pick up the failed statement and try it again.
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite2",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test2.db")),
 	)
@@ -240,12 +237,11 @@ func TestMigrate_Apply(t *testing.T) {
 	require.NotContains(t, s, "ALTER TABLE `tbl` ADD `col_4` bigint;")  // but not third
 	require.Contains(t, s, "0 migrations ok (1 with errors)")           // logs amount of migrations
 	require.Contains(t, s, "1 sql statements ok (1 with errors)")       // logs amount of statement
-	require.Contains(t, s, "Error: Execution had errors:")              // logs error summary
 	require.Contains(t, s, "near \"asdasd\": syntax error")             // logs error summary
 
 	// Editing an applied line will raise error.
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite2",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test2.db")),
 		"--tx-mode", "none",
@@ -255,10 +251,10 @@ func TestMigrate_Apply(t *testing.T) {
 	})
 	require.NoError(t, exec.Command("cp", "-r", "testdata/sqlite2", "testdata/sqlite3").Run())
 	sed(t, "s/col_2/col_5/g", "testdata/sqlite3/20220318104615_second.sql")
-	_, err = runCmd(Root, "migrate", "hash", "--dir", "file://testdata/sqlite3")
+	_, err = runCmd(migrateHashCmd(), "--dir", "file://testdata/sqlite3")
 	require.NoError(t, err)
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite3",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test2.db")),
 	)
@@ -267,10 +263,10 @@ func TestMigrate_Apply(t *testing.T) {
 	// Fixing the migration file will finish without errors.
 	sed(t, "s/col_5/col_2/g", "testdata/sqlite3/20220318104615_second.sql")
 	sed(t, "s/asdasd //g", "testdata/sqlite3/20220318104615_second.sql")
-	_, err = runCmd(Root, "migrate", "hash", "--dir", "file://testdata/sqlite3")
+	_, err = runCmd(migrateHashCmd(), "--dir", "file://testdata/sqlite3")
 	require.NoError(t, err)
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite3",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test2.db")),
 	)
@@ -285,7 +281,7 @@ func TestMigrate_Apply(t *testing.T) {
 
 	// Running again will report database being in clean state.
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite3",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test2.db")),
 	)
@@ -295,7 +291,7 @@ func TestMigrate_Apply(t *testing.T) {
 	// Dry run will print the statements in second migration file without executing them.
 	// No changes to the revisions will be done.
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test.db")),
 		"--dry-run",
@@ -319,7 +315,6 @@ func TestMigrate_Apply(t *testing.T) {
 	revs, err = rrw.ReadRevisions(ctx)
 	require.NoError(t, err)
 	require.Len(t, revs, 1)
-	MigrateFlags.Apply.DryRun = false // global flag, undo for rest of tests
 
 	// Prerequisites for testing missing migration behavior.
 	c1, err = sqlclient.Open(ctx, fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test3.db")))
@@ -331,7 +326,7 @@ func TestMigrate_Apply(t *testing.T) {
 		"testdata/sqlite3/20220318104615_second.sql",
 		"testdata/sqlite3/20220318104616_second.sql",
 	))
-	_, err = runCmd(Root, "migrate", "hash", "--dir", "file://testdata/sqlite3")
+	_, err = runCmd(migrateHashCmd(), "--dir", "file://testdata/sqlite3")
 	require.NoError(t, err)
 	rrw, err = migrate2.NewEntRevisions(ctx, c1)
 	require.NoError(t, err)
@@ -340,7 +335,7 @@ func TestMigrate_Apply(t *testing.T) {
 	// No changes if the last revision has a greater version than the last migration.
 	require.NoError(t, rrw.WriteRevision(ctx, &migrate.Revision{Version: "zzz"}))
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite3",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test3.db")),
 	)
@@ -351,14 +346,14 @@ func TestMigrate_Apply(t *testing.T) {
 	_, err = c1.ExecContext(ctx, "DROP table `atlas_schema_revisions`")
 	require.NoError(t, err)
 	s, err = runCmd(
-		Root, "migrate", "apply", "1",
+		migrateApplyCmd(), "1",
 		"--dir", "file://testdata/sqlite3",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test3.db")),
 	)
 	require.NoError(t, rrw.WriteRevision(ctx, &migrate.Revision{Version: "20220318104615"}))
 	require.NoError(t, err)
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite3",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test3.db")),
 	)
@@ -374,7 +369,7 @@ func TestMigrate_Apply(t *testing.T) {
 	require.NoError(t, rrw.WriteRevision(ctx, &migrate.Revision{Version: "1"}))
 	require.NoError(t, err)
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite3",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test3.db")),
 	)
@@ -388,11 +383,132 @@ func TestMigrate_Apply(t *testing.T) {
 	require.NoError(t, rrw.WriteRevision(ctx, &migrate.Revision{Version: "z", Description: "z", Total: 1}))
 	require.NoError(t, err)
 	_, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/sqlite3",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test3.db")),
 	)
 	require.EqualError(t, err, migrate.MissingMigrationError{Version: "z", Description: "z"}.Error())
+}
+
+func TestMigrate_ApplyMultiEnv(t *testing.T) {
+	t.Run("FromVars", func(t *testing.T) {
+		p := t.TempDir()
+		h := `
+variable "urls" {
+  type = list(string)
+}
+
+env "local" {
+  for_each = toset(var.urls)
+  url = each.value
+  dev = "sqlite://ci?mode=memory&cache=shared&_fk=1"
+  migration {
+    dir = "file://testdata/sqlite"
+  }
+}
+`
+		path := filepath.Join(p, "atlas.hcl")
+		err := os.WriteFile(path, []byte(h), 0600)
+		require.NoError(t, err)
+		cmd := migrateCmd()
+		cmd.AddCommand(migrateApplyCmd())
+		s, err := runCmd(
+			cmd, "apply",
+			"-c", "file://"+path,
+			"--env", "local",
+			"--var", fmt.Sprintf("urls=sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test1.db")),
+			"--var", fmt.Sprintf("urls=sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test2.db")),
+		)
+		require.NoError(t, err)
+		require.Equal(t, 2, strings.Count(s, "Migrating to version 20220318104615 (2 migrations in total)"), "execution per environment")
+		_, err = os.Stat(filepath.Join(p, "test1.db"))
+		require.NoError(t, err)
+		_, err = os.Stat(filepath.Join(p, "test2.db"))
+		require.NoError(t, err)
+	})
+
+	t.Run("FromDataSrc", func(t *testing.T) {
+		var (
+			h = `
+variable "url" {
+  type = string
+}
+
+data "sql" "tenants" {
+  url   = var.url
+  query = "SELECT name FROM tenants"
+}
+
+env "local" {
+  for_each = toset(data.sql.tenants.values)
+  url = "sqlite://file:${each.value}?cache=shared&_fk=1"
+  dev = "sqlite://ci?mode=memory&cache=shared&_fk=1"
+  migration {
+    dir = "file://testdata/sqlite"
+  }
+  log {
+    migrate {
+      apply = format(
+        "{{ json . | json_merge %q }}",
+        jsonencode({
+          Tenant: each.value
+        })
+      )
+    }
+  }
+}
+`
+			p    = t.TempDir()
+			path = filepath.Join(p, "atlas.hcl")
+			dbs  = []string{filepath.Join(p, "test1.db"), filepath.Join(p, "test2.db"), filepath.Join(p, "test3.db")}
+		)
+		err := os.WriteFile(path, []byte(h), 0600)
+		require.NoError(t, err)
+		db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?cache=shared&_fk=1", filepath.Join(p, "tenants.db")))
+		require.NoError(t, err)
+		_, err = db.Exec("CREATE TABLE `tenants` (`name` TEXT)")
+		require.NoError(t, err)
+		_, err = db.Exec("INSERT INTO `tenants` (`name`) VALUES (?), (?), (?)", dbs[0], dbs[1], dbs[2])
+		require.NoError(t, err)
+
+		cmd := migrateCmd()
+		cmd.AddCommand(migrateApplyCmd())
+		s, err := runCmd(
+			cmd, "apply",
+			"-c", "file://"+path,
+			"--env", "local",
+			"--var", fmt.Sprintf("url=sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "tenants.db")),
+		)
+		require.NoError(t, err)
+		require.Equal(t, 3, strings.Count(s, `"Tenant"`))
+		require.Equal(t, 3, strings.Count(s, `"Applied":[{"Applied":["CREATE TABLE tbl`), "execution per environment")
+		for i := range dbs {
+			_, err = os.Stat(dbs[i])
+			require.NoError(t, err)
+		}
+
+		_, err = db.Exec("INSERT INTO `tenants` (`name`) VALUES (NULL)")
+		require.NoError(t, err)
+		_, err = runCmd(
+			cmd, "apply",
+			"-c", "file://"+path,
+			"--env", "local",
+			"--var", fmt.Sprintf("url=sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "tenants.db")),
+		)
+		// Rows should represent real and consistent values.
+		require.EqualError(t, err, "data.sql.tenants: unsupported row type: <nil>")
+
+		_, err = db.Exec("DELETE FROM `tenants`")
+		require.NoError(t, err)
+		s, err = runCmd(
+			cmd, "apply",
+			"-c", "file://"+path,
+			"--env", "local",
+			"--var", fmt.Sprintf("url=sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "tenants.db")),
+		)
+		// Empty list is expanded to zero blocks.
+		require.EqualError(t, err, `env "local" not defined in project file`)
+	})
 }
 
 func TestMigrate_ApplyTxMode(t *testing.T) {
@@ -401,7 +517,7 @@ func TestMigrate_ApplyTxMode(t *testing.T) {
 			p := t.TempDir()
 			// Apply the first 2 migrations.
 			s, err := runCmd(
-				Root, "migrate", "apply",
+				migrateApplyCmd(),
 				"--dir", "file://testdata/sqlitetx",
 				"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test.db")),
 				"--tx-mode", mode,
@@ -417,7 +533,7 @@ func TestMigrate_ApplyTxMode(t *testing.T) {
 
 			// Apply the rest.
 			s, err = runCmd(
-				Root, "migrate", "apply",
+				migrateApplyCmd(),
 				"--dir", "file://testdata/sqlitetx",
 				"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test.db")),
 				"--tx-mode", mode,
@@ -430,7 +546,7 @@ func TestMigrate_ApplyTxMode(t *testing.T) {
 			if mode != "none" {
 				// Apply the first 2 migrations for the faulty one.
 				s, err = runCmd(
-					Root, "migrate", "apply",
+					migrateApplyCmd(),
 					"--dir", "file://testdata/sqlitetx_2",
 					"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test_2.db")),
 					"--tx-mode", mode,
@@ -453,7 +569,7 @@ func TestMigrate_ApplyTxMode(t *testing.T) {
 
 				// Apply the rest, expect it to fail due to constraint error, but only the new one is reported.
 				s, err = runCmd(
-					Root, "migrate", "apply",
+					migrateApplyCmd(),
 					"--dir", "file://testdata/sqlitetx_2",
 					"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test_2.db")),
 					"--tx-mode", mode,
@@ -470,7 +586,7 @@ func TestMigrate_ApplyBaseline(t *testing.T) {
 	p := t.TempDir()
 	// Run migration with baseline should store this revision in the database.
 	s, err := runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/baseline1",
 		"--baseline", "1",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test.db")),
@@ -480,7 +596,7 @@ func TestMigrate_ApplyBaseline(t *testing.T) {
 
 	// Next run without baseline should run the migration from the baseline.
 	s, err = runCmd(
-		Root, "migrate", "apply",
+		migrateApplyCmd(),
 		"--dir", "file://testdata/baseline2",
 		"--url", fmt.Sprintf("sqlite://file:%s?cache=shared&_fk=1", filepath.Join(p, "test.db")),
 	)
@@ -494,7 +610,7 @@ func TestMigrate_Diff(t *testing.T) {
 
 	// Will create migration directory if not existing.
 	_, err := runCmd(
-		Root, "migrate", "diff",
+		migrateDiffCmd(),
 		"name",
 		"--dir", "file://"+filepath.Join(p, "migrations"),
 		"--dev-url", openSQLite(t, ""),
@@ -506,7 +622,7 @@ func TestMigrate_Diff(t *testing.T) {
 	// Expect no clean dev error.
 	p = t.TempDir()
 	s, err := runCmd(
-		Root, "migrate", "diff",
+		migrateDiffCmd(),
 		"name",
 		"--dir", "file://"+p,
 		"--dev-url", openSQLite(t, "create table t (c int);"),
@@ -517,7 +633,7 @@ func TestMigrate_Diff(t *testing.T) {
 
 	// Works (on empty directory).
 	s, err = runCmd(
-		Root, "migrate", "diff",
+		migrateDiffCmd(),
 		"name",
 		"--dir", "file://"+p,
 		"--dev-url", openSQLite(t, ""),
@@ -542,7 +658,7 @@ func TestMigrate_Diff(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 	s, err = runCmd(
-		Root, "migrate", "diff",
+		migrateDiffCmd(),
 		"name",
 		"--dir", "file://"+t.TempDir(),
 		"--dev-url", fmt.Sprintf("sqlitelockdiff://file:%s?cache=shared&_fk=1", filepath.Join(p, "test.db")),
@@ -558,14 +674,14 @@ func TestMigrate_New(t *testing.T) {
 		v = time.Now().UTC().Format("20060102150405")
 	)
 
-	s, err := runCmd(Root, "migrate", "new", "--dir", "file://"+p)
+	s, err := runCmd(migrateNewCmd(), "--dir", "file://"+p)
 	require.Zero(t, s)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(p, v+".sql"))
 	require.FileExists(t, filepath.Join(p, "atlas.sum"))
 	require.Equal(t, 2, countFiles(t, p))
 
-	s, err = runCmd(Root, "migrate", "new", "my-migration-file", "--dir", "file://"+p)
+	s, err = runCmd(migrateNewCmd(), "my-migration-file", "--dir", "file://"+p)
 	require.Zero(t, s)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(p, v+"_my-migration-file.sql"))
@@ -573,7 +689,7 @@ func TestMigrate_New(t *testing.T) {
 	require.Equal(t, 3, countFiles(t, p))
 
 	p = t.TempDir()
-	s, err = runCmd(Root, "migrate", "new", "golang-migrate", "--dir", "file://"+p, "--dir-format", formatGolangMigrate)
+	s, err = runCmd(migrateNewCmd(), "golang-migrate", "--dir", "file://"+p, "--dir-format", formatGolangMigrate)
 	require.Zero(t, s)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(p, v+"_golang-migrate.up.sql"))
@@ -581,14 +697,14 @@ func TestMigrate_New(t *testing.T) {
 	require.Equal(t, 3, countFiles(t, p))
 
 	p = t.TempDir()
-	s, err = runCmd(Root, "migrate", "new", "goose", "--dir", "file://"+p+"?format="+formatGoose)
+	s, err = runCmd(migrateNewCmd(), "goose", "--dir", "file://"+p+"?format="+formatGoose)
 	require.Zero(t, s)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(p, v+"_goose.sql"))
 	require.Equal(t, 2, countFiles(t, p))
 
 	p = t.TempDir()
-	s, err = runCmd(Root, "migrate", "new", "flyway", "--dir", "file://"+p+"?format="+formatFlyway)
+	s, err = runCmd(migrateNewCmd(), "flyway", "--dir", "file://"+p+"?format="+formatFlyway)
 	require.Zero(t, s)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(p, fmt.Sprintf("V%s__%s.sql", v, formatFlyway)))
@@ -596,14 +712,14 @@ func TestMigrate_New(t *testing.T) {
 	require.Equal(t, 3, countFiles(t, p))
 
 	p = t.TempDir()
-	s, err = runCmd(Root, "migrate", "new", "liquibase", "--dir", "file://"+p+"?format="+formatLiquibase)
+	s, err = runCmd(migrateNewCmd(), "liquibase", "--dir", "file://"+p+"?format="+formatLiquibase)
 	require.Zero(t, s)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(p, v+"_liquibase.sql"))
 	require.Equal(t, 2, countFiles(t, p))
 
 	p = t.TempDir()
-	s, err = runCmd(Root, "migrate", "new", "dbmate", "--dir", "file://"+p+"?format="+formatDBMate)
+	s, err = runCmd(migrateNewCmd(), "dbmate", "--dir", "file://"+p+"?format="+formatDBMate)
 	require.Zero(t, s)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(p, v+"_dbmate.sql"))
@@ -612,23 +728,21 @@ func TestMigrate_New(t *testing.T) {
 	f := filepath.Join("testdata", "mysql", "new.sql")
 	require.NoError(t, os.WriteFile(f, []byte("contents"), 0600))
 	t.Cleanup(func() { os.Remove(f) })
-	s, err = runCmd(Root, "migrate", "new", "--dir", "file://testdata/mysql")
+	s, err = runCmd(migrateNewCmd(), "--dir", "file://testdata/mysql")
 	require.NotZero(t, s)
 	require.Error(t, err)
 }
 
 func TestMigrate_Validate(t *testing.T) {
 	// Without re-playing.
-	MigrateFlags.DevURL = ""         // global flags are set from other tests ...
-	MigrateFlags.DirFormat = "atlas" // global flags are set from other tests ...
-	s, err := runCmd(Root, "migrate", "validate", "--dir", "file://testdata/mysql")
+	s, err := runCmd(migrateValidateCmd(), "--dir", "file://testdata/mysql")
 	require.Zero(t, s)
 	require.NoError(t, err)
 
 	f := filepath.Join("testdata", "mysql", "new.sql")
 	require.NoError(t, os.WriteFile(f, []byte("contents"), 0600))
 	t.Cleanup(func() { os.Remove(f) })
-	s, err = runCmd(Root, "migrate", "validate", "--dir", "file://testdata/mysql")
+	s, err = runCmd(migrateValidateCmd(), "--dir", "file://testdata/mysql")
 	require.NotZero(t, s)
 	require.Error(t, err)
 	require.NoError(t, os.Remove(f))
@@ -637,10 +751,10 @@ func TestMigrate_Validate(t *testing.T) {
 	p := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(p, "1_initial.sql"), []byte("create table t1 (c1 int)"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(p, "2_second.sql"), []byte("create table t2 (c2 int)"), 0644))
-	_, err = runCmd(Root, "migrate", "hash", "--dir", "file://"+p)
+	_, err = runCmd(migrateHashCmd(), "--dir", "file://"+p)
 	require.NoError(t, err)
 	s, err = runCmd(
-		Root, "migrate", "validate",
+		migrateValidateCmd(),
 		"--dir", "file://"+p,
 		"--dev-url", openSQLite(t, ""),
 	)
@@ -648,17 +762,17 @@ func TestMigrate_Validate(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should fail since the files are not compatible with SQLite.
-	_, err = runCmd(Root, "migrate", "validate", "--dir", "file://testdata/mysql", "--dev-url", openSQLite(t, ""))
+	_, err = runCmd(migrateValidateCmd(), "--dir", "file://testdata/mysql", "--dev-url", openSQLite(t, ""))
 	require.Error(t, err)
 }
 
 func TestMigrate_Hash(t *testing.T) {
-	s, err := runCmd(Root, "migrate", "hash", "--dir", "file://testdata/mysql")
+	s, err := runCmd(migrateHashCmd(), "--dir", "file://testdata/mysql")
 	require.Zero(t, s)
 	require.NoError(t, err)
 
 	// Prints a warning if --force flag is still used.
-	s, err = runCmd(Root, "migrate", "hash", "--dir", "file://testdata/mysql", "--force")
+	s, err = runCmd(migrateHashCmd(), "--dir", "file://testdata/mysql", "--force")
 	require.NoError(t, err)
 	require.Equal(t, "Flag --force has been deprecated, you can safely omit it.\n", s)
 
@@ -666,7 +780,7 @@ func TestMigrate_Hash(t *testing.T) {
 	err = copyFile(filepath.Join("testdata", "mysql", "20220318104614_initial.sql"), filepath.Join(p, "20220318104614_initial.sql"))
 	require.NoError(t, err)
 
-	s, err = runCmd(Root, "migrate", "hash", "--dir", "file://"+p)
+	s, err = runCmd(migrateHashCmd(), "--dir", "file://"+p)
 	require.Zero(t, s)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(p, "atlas.sum"))
@@ -685,7 +799,7 @@ func TestMigrate_Hash(t *testing.T) {
 		filepath.Join("testdata", "mysql", "20220318104614_initial.sql"),
 		filepath.Join(p, "20220318104614_initial.sql"),
 	))
-	s, err = runCmd(Root, "migrate", "hash", "--dir", "file://"+os.Getenv("MIGRATION_DIR"))
+	s, err = runCmd(migrateHashCmd(), "--dir", "file://"+os.Getenv("MIGRATION_DIR"))
 	require.NotZero(t, s)
 	require.Error(t, err)
 }
@@ -693,7 +807,7 @@ func TestMigrate_Hash(t *testing.T) {
 func TestMigrate_Lint(t *testing.T) {
 	p := t.TempDir()
 	s, err := runCmd(
-		Root, "migrate", "lint",
+		migrateLintCmd(),
 		"--dir", "file://"+p,
 		"--dev-url", openSQLite(t, ""),
 		"--latest", "1",
@@ -706,7 +820,7 @@ func TestMigrate_Lint(t *testing.T) {
 	err = os.WriteFile(filepath.Join(p, "2.sql"), []byte("DROP TABLE t;"), 0600)
 	require.NoError(t, err)
 	s, err = runCmd(
-		Root, "migrate", "lint",
+		migrateLintCmd(),
 		"--dir", "file://"+p,
 		"--dev-url", openSQLite(t, ""),
 		"--latest", "1",
@@ -714,7 +828,7 @@ func TestMigrate_Lint(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, "2.sql: destructive changes detected:\n\n\tL1: Dropping table \"t\"\n\n", s)
 	s, err = runCmd(
-		Root, "migrate", "lint",
+		migrateLintCmd(),
 		"--dir", "file://"+p,
 		"--dev-url", openSQLite(t, ""),
 		"--latest", "1",
@@ -727,7 +841,7 @@ func TestMigrate_Lint(t *testing.T) {
 	require.NoError(t, os.Rename(filepath.Join(p, "1.sql"), filepath.Join(p, "1.up.sql")))
 	require.NoError(t, os.Rename(filepath.Join(p, "2.sql"), filepath.Join(p, "1.down.sql")))
 	s, err = runCmd(
-		Root, "migrate", "lint",
+		migrateLintCmd(),
 		"--dir", "file://"+p+"?format="+formatGolangMigrate,
 		"--dev-url", openSQLite(t, ""),
 		"--latest", "2",
@@ -735,13 +849,22 @@ func TestMigrate_Lint(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, "1.up.sql:0", s)
+	s, err = runCmd(
+		migrateLintCmd(),
+		"--dir", "file://"+p+"?format="+formatGolangMigrate,
+		"--dev-url", openSQLite(t, ""),
+		"--latest", "2",
+		"--log", "{{ range .Files }}{{ .Name }}:{{ len .Reports }}{{ end }}",
+		"--dir-format", formatGolangMigrate,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "1.up.sql:0", s)
 
 	// Invalid files.
-	MigrateFlags.Lint.Format = ""
 	err = os.WriteFile(filepath.Join(p, "2.up.sql"), []byte("BORING"), 0600)
 	require.NoError(t, err)
 	s, err = runCmd(
-		Root, "migrate", "lint",
+		migrateLintCmd(),
 		"--dir", "file://"+p+"?format="+formatGolangMigrate,
 		"--dev-url", openSQLite(t, ""),
 		"--latest", "1",

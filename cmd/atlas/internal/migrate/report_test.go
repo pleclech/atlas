@@ -27,11 +27,11 @@ func TestReporter_Status(t *testing.T) {
 	c, err := sqlclient.Open(ctx, "sqlite://?mode=memory")
 	require.NoError(t, err)
 	defer c.Close()
-	require.NoError(t, (&Reporter{
+	require.NoError(t, (&StatusReporter{
 		Client:       c,
 		Dir:          dir,
-		ReportWriter: &TemplateWriter{T: DefaultTemplate, W: &buf},
-	}).Status(ctx))
+		ReportWriter: &TemplateWriter{T: DefaultStatusTemplate, W: &buf},
+	}).Report(ctx))
 	require.Equal(t, `Migration Status: PENDING
   -- Current Version: No migration applied yet
   -- Next Version:    1
@@ -47,11 +47,11 @@ func TestReporter_Status(t *testing.T) {
 	ex, err := migrate.NewExecutor(c.Driver, dir, rrw)
 	require.NoError(t, err)
 	require.NoError(t, ex.ExecuteN(ctx, 1))
-	require.NoError(t, (&Reporter{
+	require.NoError(t, (&StatusReporter{
 		Client:       c,
 		Dir:          dir,
-		ReportWriter: &TemplateWriter{T: DefaultTemplate, W: &buf},
-	}).Status(ctx))
+		ReportWriter: &TemplateWriter{T: DefaultStatusTemplate, W: &buf},
+	}).Report(ctx))
 	require.Equal(t, `Migration Status: PENDING
   -- Current Version: 1
   -- Next Version:    2
@@ -63,11 +63,11 @@ func TestReporter_Status(t *testing.T) {
 	buf.Reset()
 	require.NoError(t, err)
 	require.NoError(t, ex.ExecuteN(ctx, 1))
-	require.NoError(t, (&Reporter{
+	require.NoError(t, (&StatusReporter{
 		Client:       c,
 		Dir:          dir,
-		ReportWriter: &TemplateWriter{T: DefaultTemplate, W: &buf},
-	}).Status(ctx))
+		ReportWriter: &TemplateWriter{T: DefaultStatusTemplate, W: &buf},
+	}).Report(ctx))
 	require.Equal(t, `Migration Status: PENDING
   -- Current Version: 2
   -- Next Version:    3
@@ -79,11 +79,11 @@ func TestReporter_Status(t *testing.T) {
 	buf.Reset()
 	require.NoError(t, err)
 	require.Error(t, ex.ExecuteN(ctx, 1))
-	require.NoError(t, (&Reporter{
+	require.NoError(t, (&StatusReporter{
 		Client:       c,
 		Dir:          dir,
-		ReportWriter: &TemplateWriter{T: DefaultTemplate, W: &buf},
-	}).Status(ctx))
+		ReportWriter: &TemplateWriter{T: DefaultStatusTemplate, W: &buf},
+	}).Report(ctx))
 	require.Equal(t, `Migration Status: PENDING
   -- Current Version: 3 (1 statements applied)
   -- Next Version:    3 (1 statements left)
@@ -102,11 +102,11 @@ Last migration attempt had errors:
 	*dir = *dir2
 	require.NoError(t, err)
 	require.NoError(t, ex.ExecuteN(ctx, 1))
-	require.NoError(t, (&Reporter{
+	require.NoError(t, (&StatusReporter{
 		Client:       c,
 		Dir:          dir,
-		ReportWriter: &TemplateWriter{T: DefaultTemplate, W: &buf},
-	}).Status(ctx))
+		ReportWriter: &TemplateWriter{T: DefaultStatusTemplate, W: &buf},
+	}).Report(ctx))
 	require.Equal(t, `Migration Status: OK
   -- Current Version: 3
   -- Next Version:    Already at latest version
