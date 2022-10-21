@@ -48,9 +48,8 @@ atlas migrate
 
 #### Flags
 ```
-      --dir string           select migration directory using URL format (default "file://migrations")
-      --dir-format string    set migration file format (default "atlas")
-      --env string           set which env from the project file to use
+  -c, --config string        select config (project) file using URL format (default "file://atlas.hcl")
+      --env string           set which env from the config file to use
       --var <name>=<value>   input variables (default [])
 
 ```
@@ -62,7 +61,7 @@ Applies pending migration files on the connected database.
 
 #### Usage
 ```
-atlas migrate apply [flags] [count]
+atlas migrate apply [flags] [amount]
 ```
 
 #### Details
@@ -85,14 +84,15 @@ If run with the "--dry-run" flag, atlas will not execute any SQL.
 ```
 #### Flags
 ```
-      --log string                log format to use (default "tty")
-      --revisions-schema string   schema name where the revisions table resides
-      --dry-run                   do not actually execute any SQL but show it on screen
+  -u, --url string                [driver://username:password@address/dbname?param=value] select a resource using the URL format
+      --dir string                select migration directory using URL format (default "file://migrations")
+      --log string                go template to use to format logs
+      --revisions-schema string   name of the schema the revisions table resides in
+      --dry-run                   print SQL without executing it
       --from string               calculate pending files from the given version (including it)
       --baseline string           start the first migration after the given baseline version
       --tx-mode string            set transaction mode [none, file, all] (default "file")
       --allow-dirty               allow start working on a non-clean database
-  -u, --url string                [driver://username:password@address/dbname?param=value] select a database using the URL format
 
 ```
 
@@ -114,16 +114,20 @@ directory state to the desired schema. The desired state can be another connecte
 #### Example
 
 ```
-  atlas migrate diff --dev-url mysql://user:pass@localhost:3306/dev --to file://atlas.hcl
+  atlas migrate diff --dev-url mysql://user:pass@localhost:3306/dev --to file://schema.hcl
   atlas migrate diff --dev-url mysql://user:pass@localhost:3306/dev --to file://atlas.hcl add_users_table
   atlas migrate diff --dev-url mysql://user:pass@localhost:3306/dev --to mysql://user:pass@localhost:3306/dbname
   atlas migrate diff --env dev
 ```
 #### Flags
 ```
-      --dev-url string     [driver://username:password@address/dbname?param=value] select a database using the URL format
-      --to strings         [driver://username:password@address/dbname?param=value ...] select a desired state using the URL format
-      --qualifier string   qualify tables with custom qualifier when working on a single schema
+  -u, --to strings                [driver://username:password@address/dbname?param=value] select a resource using the URL format
+      --dev-url string            [driver://username:password@address/dbname?param=value] select a dev database using the URL format
+      --dir string                select migration directory using URL format (default "file://migrations")
+      --dir-format string         select migration file format (default "atlas")
+      --revisions-schema string   name of the schema the revisions table resides in
+  -s, --schema strings            set schema names
+      --qualifier string          qualify tables with custom qualifier when working on a single schema
 
 ```
 
@@ -134,7 +138,7 @@ Hash (re-)creates an integrity hash file for the migration directory.
 
 #### Usage
 ```
-atlas migrate hash
+atlas migrate hash [flags]
 ```
 
 #### Details
@@ -146,6 +150,13 @@ This command should be used whenever a manual change in the migration directory 
 ```
   atlas migrate hash
 ```
+#### Flags
+```
+      --dir string          select migration directory using URL format (default "file://migrations")
+      --dir-format string   select migration file format (default "atlas")
+
+```
+
 
 ### atlas migrate import
 
@@ -163,8 +174,9 @@ atlas migrate import [flags]
 ```
 #### Flags
 ```
-      --from string   select migration directory using URL format (default "file://migrations")
-      --to string     select migration directory using URL format (default "file://migrations")
+      --from string         select migration directory using URL format (default "file://migrations")
+      --to string           select migration directory using URL format (default "file://migrations")
+      --dir-format string   select migration file format (default "atlas")
 
 ```
 
@@ -188,11 +200,13 @@ atlas migrate lint [flags]
 ```
 #### Flags
 ```
-      --dev-url string    [driver://username:password@address/dbname?param=value] select a database using the URL format
-      --git-base string   run analysis against the base Git branch
-      --git-dir string    path to the repository working directory (default ".")
-      --latest uint       run analysis on the latest N migration files
-      --log string        custom logging using a Go template
+      --dev-url string      [driver://username:password@address/dbname?param=value] select a dev database using the URL format
+      --dir string          select migration directory using URL format (default "file://migrations")
+      --dir-format string   select migration file format (default "atlas")
+      --log string          custom logging using a Go template
+      --latest uint         run analysis on the latest N migration files
+      --git-base string     run analysis against the base Git branch
+      --git-dir string      path to the repository working directory (default ".")
 
 ```
 
@@ -203,7 +217,7 @@ Creates a new empty migration file in the migration directory.
 
 #### Usage
 ```
-atlas migrate new [name]
+atlas migrate new [flags] [name]
 ```
 
 #### Details
@@ -214,6 +228,13 @@ atlas migrate new [name]
 ```
   atlas migrate new my-new-migration
 ```
+#### Flags
+```
+      --dir string          select migration directory using URL format (default "file://migrations")
+      --dir-format string   select migration file format (default "atlas")
+
+```
+
 
 ### atlas migrate set
 
@@ -221,7 +242,7 @@ Set the current version of the migration history table.
 
 #### Usage
 ```
-atlas migrate set <version> [flags]
+atlas migrate set [flags] <version>
 ```
 
 #### Details
@@ -231,13 +252,16 @@ to be applied. This command is usually used after manually making changes to the
 #### Example
 
 ```
-  atlas migrate set-revision 3 --url mysql://user:pass@localhost:3306/
-  atlas migrate set-revision 4 --env local
-  atlas migrate set-revision 1.2.4 --url mysql://user:pass@localhost:3306/my_db --revision-schema my_revisions
+  atlas migrate set 3 --url mysql://user:pass@localhost:3306/
+  atlas migrate set 4 --env local
+  atlas migrate set 1.2.4 --url mysql://user:pass@localhost:3306/my_db --revision-schema my_revisions
 ```
 #### Flags
 ```
-  -u, --url string   [driver://username:password@address/dbname?param=value] select a database using the URL format
+  -u, --url string                [driver://username:password@address/dbname?param=value] select a resource using the URL format
+      --dir string                select migration directory using URL format (default "file://migrations")
+      --dir-format string         select migration file format (default "atlas")
+      --revisions-schema string   name of the schema the revisions table resides in
 
 ```
 
@@ -262,9 +286,10 @@ atlas migrate status [flags]
 ```
 #### Flags
 ```
-      --log string                custom logging using a Go template
-      --revisions-schema string   schema name where the revisions table resides
-  -u, --url string                [driver://username:password@address/dbname?param=value] select a database using the URL format
+  -u, --url string                [driver://username:password@address/dbname?param=value] select a resource using the URL format
+      --dir string                select migration directory using URL format (default "file://migrations")
+      --dir-format string         select migration file format (default "atlas")
+      --revisions-schema string   name of the schema the revisions table resides in
 
 ```
 
@@ -293,7 +318,9 @@ files are executed on the connected database in order to validate SQL semantics.
 ```
 #### Flags
 ```
-      --dev-url string   [driver://username:password@address/dbname?param=value] select a database using the URL format
+      --dev-url string      [driver://username:password@address/dbname?param=value] select a dev database using the URL format
+      --dir string          select migration directory using URL format (default "file://migrations")
+      --dir-format string   select migration file format (default "atlas")
 
 ```
 
@@ -308,11 +335,12 @@ atlas schema
 ```
 
 #### Details
-The `atlas schema` command groups subcommands for working with Atlas schemas.
+The `atlas schema` command groups subcommands working with declarative Atlas schemas.
 
 #### Flags
 ```
-      --env string           set which env from the project file to use
+  -c, --config string        select config (project) file using URL format (default "file://atlas.hcl")
+      --env string           set which env from the config file to use
       --var <name>=<value>   input variables (default [])
 
 ```
@@ -332,11 +360,12 @@ atlas schema apply [flags]
 database to the state described in the provided Atlas schema. Before running the
 migration, Atlas will print the migration plan and prompt the user for approval.
 
-The schema is provided by one or more paths (to a file or directory) using the "-f" flag:
-  atlas schema apply -u URL -f file1.hcl -f file2.hcl
-  atlas schema apply -u URL -f schema/ -f override.hcl
+The schema is provided by one or more URLs (to a HCL file or 
+directory, database or migration directory) using the "--to, -t" flag:
+  atlas schema apply -u URL --to file://file1.hcl --to file://file2.hcl
+  atlas schema apply -u URL --to file://schema/ --to file://override.hcl
 
-As a convenience, schemas may also be provided via an environment definition in
+As a convenience, schema URLs may also be provided via an environment definition in
 the project file (see: https://atlasgo.io/cli/projects).
 
 If run with the "--dry-run" flag, atlas will exit after printing out the planned
@@ -345,24 +374,23 @@ migration.
 #### Example
 
 ```
-  atlas schema apply -u "mysql://user:pass@localhost/dbname" -f atlas.hcl
-  atlas schema apply -u "mysql://localhost" -f schema.hcl --schema prod --schema staging
-  atlas schema apply -u "mysql://user:pass@localhost:3306/dbname" -f schema.hcl --dry-run
-  atlas schema apply -u "mariadb://user:pass@localhost:3306/dbname" -f schema.hcl
-  atlas schema apply --url "postgres://user:pass@host:port/dbname?sslmode=disable" -f schema.hcl
-  atlas schema apply -u "sqlite://file:ex1.db?_fk=1" -f schema.hcl
+  atlas schema apply -u "mysql://user:pass@localhost/dbname" --to file://atlas.hcl
+  atlas schema apply -u "mysql://localhost" --to file://schema.hcl --schema prod --schema staging
+  atlas schema apply -u "mysql://user:pass@localhost:3306/dbname" --to file://schema.hcl --dry-run
+  atlas schema apply -u "mariadb://user:pass@localhost:3306/dbname" --to file://schema.hcl
+  atlas schema apply --url "postgres://user:pass@host:port/dbname?sslmode=disable" --to file://schema.hcl
+  atlas schema apply -u "sqlite://file:ex1.db?_fk=1" --to file://schema.hcl
 ```
 #### Flags
 ```
   -f, --file strings      [paths...] file or directory containing the HCL files
-  -u, --url string        URL to the database using the format:
-                          [driver://username:password@address/dbname?param=value]
-      --exclude strings   List of glob patterns used to filter resources from applying.
-  -s, --schema strings    Set schema names.
-      --dev-url string    URL for the dev database. Used to validate schemas and calculate diffs
-                          before running migration.
-      --dry-run           Dry-run. Print SQL plan without prompting for execution.
-      --auto-approve      Auto approve. Apply the schema changes without prompting for approval.
+  -u, --url string        [driver://username:password@address/dbname?param=value] select a resource using the URL format
+      --to strings        [driver://username:password@address/dbname?param=value] select a resource using the URL format
+      --exclude strings   list of glob patterns used to filter resources from applying
+  -s, --schema strings    set schema names
+      --dev-url string    [driver://username:password@address/dbname?param=value] select a dev database using the URL format
+      --dry-run           print SQL without executing it
+      --auto-approve      apply changes without prompting for approval
 
 ```
 
@@ -388,9 +416,8 @@ As a safety feature, 'atlas schema clean' will ask for confirmation before attem
 ```
 #### Flags
 ```
-      --auto-approve   Auto approve. Apply the schema changes without prompting for approval.
-  -u, --url string     URL to the database using the format:
-                       [driver://username:password@address/dbname?param=value]
+  -u, --url string     [driver://username:password@address/dbname?param=value] select a resource using the URL format
+      --auto-approve   apply changes without prompting for approval
 
 ```
 
@@ -405,14 +432,25 @@ atlas schema diff [flags]
 ```
 
 #### Details
-'atlas schema diff' connects to two given databases, inspects
-them, calculates the difference in their schemas, and prints a plan of
+'atlas schema diff' reads the state of two given schema definitions, 
+calculates the difference in their schemas, and prints a plan of
 SQL statements to migrate the "from" database to the schema of the "to" database.
+The database states can be read from a connected database, an HCL project or a migration directory.
 
+#### Example
+
+```
+  atlas schema diff --from mysql://user:pass@localhost:3306/test --to file://schema.hcl
+  atlas schema diff --from mysql://user:pass@localhost:3306 --to file://schema_1.hcl --to file://schema_2.hcl
+  atlas schema diff --from mysql://user:pass@localhost:3306 --to file://migrations
+```
 #### Flags
 ```
-      --from string   [driver://username:password@protocol(address)/dbname?param=value] select a database using the URL format
-      --to string     [driver://username:password@protocol(address)/dbname?param=value] select a database using the URL format
+  -f, --from strings      [driver://username:password@address/dbname?param=value] select a resource using the URL format
+      --to strings        [driver://username:password@address/dbname?param=value] select a resource using the URL format
+      --dev-url string    [driver://username:password@address/dbname?param=value] select a dev database using the URL format
+  -s, --schema strings    set schema names
+      --exclude strings   list of glob patterns used to filter resources from applying
 
 ```
 
@@ -427,7 +465,7 @@ atlas schema fmt [path ...]
 ```
 
 #### Details
-'atlas schema fmt' formats all ".hcl" files under the given path using
+'atlas schema fmt' formats all ".hcl" files under the given paths using
 canonical HCL layout style as defined by the github.com/hashicorp/hcl/v2/hclwrite package.
 Unless stated otherwise, the fmt command will use the current directory.
 
@@ -470,9 +508,9 @@ flag.
 ```
 #### Flags
 ```
-      --exclude strings   List of glob patterns used to filter resources from inspection
-  -s, --schema strings    Set schema name
-  -u, --url string        [driver://username:password@protocol(address)/dbname?param=value] select a database using the URL format
+  -u, --url string        [driver://username:password@address/dbname?param=value] select a resource using the URL format
+  -s, --schema strings    set schema names
+      --exclude strings   list of glob patterns used to filter resources from applying
 
 ```
 

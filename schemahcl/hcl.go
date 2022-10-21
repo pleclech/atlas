@@ -85,13 +85,16 @@ func (s *State) Eval(parsed *hclparse.Parser, v any, input map[string]cty.Value)
 			return err
 		}
 		body := file.Body.(*hclsyntax.Body)
+		if err := s.evalReferences(ctx, body); err != nil {
+			return err
+		}
 		for _, blk := range body.Blocks {
-			// Variable definition blocks are available in the HCL source but not reachable by reference.
-			if blk.Type == varBlock {
-				continue
+			// Variable blocks are available in the HCL
+			// source but not reachable by reference.
+			if blk.Type != varBlock {
+				allBlocks = append(allBlocks, blk)
+				reg.child(extractDef(blk, reg))
 			}
-			allBlocks = append(allBlocks, blk)
-			reg.child(extractDef(blk, reg))
 		}
 	}
 	vars, err := blockVars(allBlocks, "", reg)
@@ -356,7 +359,8 @@ func extractValue(value cty.Value) (Value, error) {
 		return &LiteralValue{V: strconv.FormatFloat(num, 'f', -1, 64)}, nil
 	case cty.Bool:
 		return &LiteralValue{V: strconv.FormatBool(value.True())}, nil
-	case cty.List(cty.String), cty.List(cty.Number), cty.List(cty.Bool):
+	case cty.List(cty.String), cty.List(cty.Number), cty.List(cty.Bool), cty.List(cty.NilType),
+		cty.Set(cty.String), cty.Set(cty.Number), cty.Set(cty.Bool), cty.Set(cty.NilType):
 		l := &ListValue{V: make([]Value, 0, value.LengthInt())}
 		for it := value.ElementIterator(); it.Next(); {
 			_, v := it.Element()

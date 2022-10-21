@@ -5,6 +5,7 @@
 package schemahcl
 
 import (
+	"net/url"
 	"strconv"
 
 	"github.com/hashicorp/hcl/v2"
@@ -15,7 +16,7 @@ import (
 	"github.com/zclconf/go-cty/cty/function/stdlib"
 )
 
-func varBlockContext(ctx *hcl.EvalContext) *hcl.EvalContext {
+func stdTypes(ctx *hcl.EvalContext) *hcl.EvalContext {
 	ctx = ctx.NewChild()
 	ctx.Variables = map[string]cty.Value{
 		"string": cty.CapsuleVal(ctyNilType, &cty.String),
@@ -115,6 +116,7 @@ func stdFuncs() map[string]function.Function {
 		"formatdate":      stdlib.FormatDateFunc,
 		"formatlist":      stdlib.FormatListFunc,
 		"indent":          stdlib.IndentFunc,
+		"index":           stdlib.IndexFunc,
 		"join":            stdlib.JoinFunc,
 		"jsondecode":      stdlib.JSONDecodeFunc,
 		"jsonencode":      stdlib.JSONEncodeFunc,
@@ -129,6 +131,7 @@ func stdFuncs() map[string]function.Function {
 		"range":           stdlib.RangeFunc,
 		"regex":           stdlib.RegexFunc,
 		"regexall":        stdlib.RegexAllFunc,
+		"regexreplace":    stdlib.RegexReplaceFunc,
 		"reverse":         stdlib.ReverseListFunc,
 		"setintersection": stdlib.SetIntersectionFunc,
 		"setproduct":      stdlib.SetProductFunc,
@@ -142,17 +145,19 @@ func stdFuncs() map[string]function.Function {
 		"substr":          stdlib.SubstrFunc,
 		"timeadd":         stdlib.TimeAddFunc,
 		"title":           stdlib.TitleFunc,
-		"tostring":        makeToFunc(cty.String),
-		"tonumber":        makeToFunc(cty.Number),
 		"tobool":          makeToFunc(cty.Bool),
-		"toset":           makeToFunc(cty.Set(cty.DynamicPseudoType)),
 		"tolist":          makeToFunc(cty.List(cty.DynamicPseudoType)),
+		"tonumber":        makeToFunc(cty.Number),
+		"toset":           makeToFunc(cty.Set(cty.DynamicPseudoType)),
+		"tostring":        makeToFunc(cty.String),
 		"trim":            stdlib.TrimFunc,
 		"trimprefix":      stdlib.TrimPrefixFunc,
 		"trimspace":       stdlib.TrimSpaceFunc,
 		"trimsuffix":      stdlib.TrimSuffixFunc,
 		"try":             tryfunc.TryFunc,
 		"upper":           stdlib.UpperFunc,
+		"urlqueryset":     urlQuerySetFunc,
+		"urlsetpath":      urlSetPathFunc,
 		"values":          stdlib.ValuesFunc,
 		"zipmap":          stdlib.ZipmapFunc,
 	}
@@ -233,3 +238,53 @@ func makeToFunc(wantTy cty.Type) function.Function {
 		},
 	})
 }
+
+var urlQuerySetFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{
+			Name: "url",
+			Type: cty.String,
+		},
+		{
+			Name: "key",
+			Type: cty.String,
+		},
+		{
+			Name: "value",
+			Type: cty.String,
+		},
+	},
+	Type: function.StaticReturnType(cty.String),
+	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+		u, err := url.Parse(args[0].AsString())
+		if err != nil {
+			return cty.NilVal, err
+		}
+		q := u.Query()
+		q.Set(args[1].AsString(), args[2].AsString())
+		u.RawQuery = q.Encode()
+		return cty.StringVal(u.String()), nil
+	},
+})
+
+var urlSetPathFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{
+			Name: "url",
+			Type: cty.String,
+		},
+		{
+			Name: "path",
+			Type: cty.String,
+		},
+	},
+	Type: function.StaticReturnType(cty.String),
+	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+		u, err := url.Parse(args[0].AsString())
+		if err != nil {
+			return cty.NilVal, err
+		}
+		u.Path = args[1].AsString()
+		return cty.StringVal(u.String()), nil
+	},
+})
