@@ -41,6 +41,10 @@ If you already have the Atlas GitHub action set up, you may skip step 4. In step
 
 1. From the Settings page, generate an access token under 'Tokens'.
 2. On your GitHub repo, under the 'Settings' section, click on 'Secrets' > 'Actions' to create a new repository secret.
+![GitHub Secrets](https://release.ariga.io/images/assets/github-secrets.png)
+:::note
+If you do not see this on your GitHub repository, ask your repository owner for access or help.
+:::
 3. Name your secret (for example, ARIGA_TOKEN) and paste the generated token from step 2.
 4. Install the Atlas GitHub Action by adding a file named `.github/workflows/atlas-ci.yaml` to your repo.
 5. Based on the type of database you are using, copy the following code into the workflow definition file. Set up
@@ -236,7 +240,7 @@ The CI ran successfully and no errors or issues were found in your SQL statement
 
 <TabItem value = "issues">
 
-![Issues Found Run](https://release.ariga.io/images/assets/issues-found.png)
+![Issues Found Run](https://release.ariga.io/images/assets/issues-found-screenshot.png)
 
 In cases where your SQL statements _might_ cause a failure in production, the CI run will be labeled as 'issues
 found'. In this example, we can see that the column `name` was created as non-nullable. The CI is letting us know that

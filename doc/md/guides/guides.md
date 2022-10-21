@@ -14,11 +14,15 @@ Welcome to the Atlas Guides.
 
 [Generated Columns](mysql/generated-columns.md)
 
+[Managing MySQL schemas on RDS with Terraform](mysql/terraform.md)
+
 ### PostgreSQL
 
 [Serial Type Columns](postgres/serial-columns.md)
 
 [Partial Indexes](postgres/partial-indexes.md)
+
+[Included Columns](postgres/included-columns.md)
 
 ## Migration tools
 

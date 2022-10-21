@@ -38,6 +38,7 @@ module.exports = {
                 {type: 'doc', id: 'versioned/lint', label: 'Migration Linting'},
                 {type: 'doc', id: 'versioned/new', label: 'Manual Migrations'},
                 {type: 'doc', id: 'versioned/apply', label: 'Migration Applying'},
+                {type: 'doc', id: 'versioned/troubleshoot', label: 'Migration Troubleshooting'},
                 {type: 'doc', id: 'versioned/import', label: 'Migration Import'},
             ]
         },
@@ -48,7 +49,7 @@ module.exports = {
             items: [
                 {type: 'doc', id: 'atlas-schema/sql-resources', label: 'SQL Resources'},
                 {type: 'doc', id: 'atlas-schema/sql-types', label: 'SQL Column Types'},
-                {type: 'doc', id: 'atlas-schema/projects', label: 'Project Structure'},
+                {type: 'doc', id: 'atlas-schema/projects', label: 'Project Configuration'},
                 {type: 'doc', id: 'atlas-schema/input-variables', label: 'Input Variables'},
             ],
         },
@@ -105,6 +106,11 @@ module.exports = {
                   id: 'guides/mysql/generated-columns',
                   label: 'Generated Columns'
                 },
+                {
+                    type: 'doc',
+                    id: 'guides/mysql/terraform-mysql-rds',
+                    label: 'Managing with Terraform'
+                },
             ],
         },
         {
@@ -121,6 +127,11 @@ module.exports = {
                     type: 'doc',
                     id: 'guides/postgres/partial-indexes',
                     label: 'Partial Indexes'
+                },
+                {
+                    type: 'doc',
+                    id: 'guides/postgres/included-columns',
+                    label: 'Covering Indexes'
                 },
             ],
         },
