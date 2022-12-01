@@ -47,10 +47,11 @@ type (
 
 	// Index holds a specification for the index key of a table.
 	Index struct {
-		Name    string           `spec:",name"`
-		Unique  bool             `spec:"unique,omitempty"`
-		Parts   []*IndexPart     `spec:"on"`
-		Columns []*schemahcl.Ref `spec:"columns"`
+		Name        string           `spec:",name"`
+		Unique      bool             `spec:"unique,omitempty"`
+		Constrained bool             `spec:"constrained,omitempty"`
+		Parts       []*IndexPart     `spec:"on"`
+		Columns     []*schemahcl.Ref `spec:"columns"`
 		schemahcl.DefaultExtension
 	}
 
