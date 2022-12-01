@@ -408,14 +408,20 @@ func (i *inspect) addIndexes(s *schema.Schema, rows *sql.Rows) error {
 			return fmt.Errorf("table %q was not found in schema", table)
 		}
 		idx, ok := names[name]
+
 		if !ok {
+			constrained := contype.Valid && contype.String == "u"
 			idx = &schema.Index{
-				Name:   name,
-				Unique: uniq,
-				Table:  t,
+				Name:        name,
+				Unique:      uniq,
+				Constrained: constrained,
+				Table:       t,
 				Attrs: []schema.Attr{
 					&IndexType{T: typ},
 				},
+			}
+			if constrained {
+				idx.Attrs = append(idx.Attrs, &ConType{T: "u"})
 			}
 			if sqlx.ValidString(comment) {
 				idx.Attrs = append(idx.Attrs, &schema.Comment{Text: comment.String})

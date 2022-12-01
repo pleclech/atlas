@@ -377,8 +377,16 @@ func (s *state) modifyTable(ctx context.Context, modify *schema.ModifyTable) err
 				}
 			}
 			// Index modification requires rebuilding the index.
-			addI = append(addI, change.To)
-			dropI = append(dropI, change.From)
+			if change.To.Constrained {
+				alter = append(alter, &schema.AddIndex{I: change.To})
+			} else {
+				addI = append(addI, change.To)
+			}
+			if change.From.Constrained {
+				alter = append(alter, &schema.DropIndex{I: change.From})
+			} else {
+				dropI = append(dropI, change.From)
+			}
 		case *schema.RenameIndex:
 			changes = append(changes, &migrate.Change{
 				Source:  change,
@@ -827,9 +835,13 @@ func (s *state) dropIndexes(t *schema.Table, indexes ...*schema.Index) {
 	rs := &state{conn: s.conn}
 	rs.addIndexes(t, indexes...)
 	for i, idx := range indexes {
+		sType := "index"
+		if idx.Constrained {
+			sType = "constraint"
+		}
 		s.append(&migrate.Change{
 			Cmd:     rs.Changes[i].Reverse,
-			Comment: fmt.Sprintf("drop index %q from table: %q", idx.Name, t.Name),
+			Comment: fmt.Sprintf("drop %s %q from table: %q", sType, idx.Name, t.Name),
 			Reverse: rs.Changes[i].Cmd,
 		})
 	}
@@ -942,8 +954,34 @@ func (s *state) mayDropEnum(alter *alterChange, ns *schema.Schema, e *schema.Enu
 	return nil
 }
 
+func (s *state) addContraint(t *schema.Table, idx *schema.Index) {
+	b := s.Build("ALTER TABLE")
+	b.Table(t)
+	b.P("ADD CONSTRAINT")
+	if idx.Name != "" {
+		b.Ident(idx.Name)
+	}
+	b.P("UNIQUE")
+	s.index(b, idx)
+	s.append(&migrate.Change{
+		Cmd:     b.String(),
+		Comment: fmt.Sprintf("create constraint %q to table: %q", idx.Name, t.Name),
+		Reverse: func() string {
+			b := s.Build("ALTER TABLE")
+			b.Table(t)
+			b.P("DROP CONSTRAINT")
+			b.Ident(idx.Name)
+			return b.String()
+		}(),
+	})
+}
+
 func (s *state) addIndexes(t *schema.Table, indexes ...*schema.Index) {
 	for _, idx := range indexes {
+		if idx.Constrained {
+			s.addContraint(t, idx)
+			continue
+		}
 		b := s.Build("CREATE")
 		if idx.Unique {
 			b.P("UNIQUE")

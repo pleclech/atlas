@@ -377,7 +377,6 @@ func (d *Diff) indexDiff(from, to *schema.Table) []schema.Change {
 				continue
 			}
 		}
-		// Not found.
 		changes = append(changes, &schema.DropIndex{I: idx1})
 	}
 	// Add indexes.

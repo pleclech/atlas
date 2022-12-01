@@ -266,6 +266,9 @@ const (
 	// ChangeUnique describes a change to the uniqueness constraint.
 	// For example, an index was changed from non-unique to unique.
 	ChangeUnique
+
+	ChangeConstraint
+
 	// ChangeParts describes a change to one or more of the index parts.
 	// For example, index keeps its previous name, but the columns order
 	// was changed.
