@@ -1016,9 +1016,6 @@ func (s *state) addIndexes(t *schema.Table, indexes ...*schema.Index) {
 		if idx.Unique {
 			b.P("UNIQUE")
 		}
-		if idx.NullsNotDistinct {
-			b.P("NULLS NOT DISTINCT")
-		}
 		b.P("INDEX")
 		if c := (Concurrently{}); sqlx.Has(idx.Attrs, &c) {
 			b.P("CONCURRENTLY")
@@ -1028,6 +1025,9 @@ func (s *state) addIndexes(t *schema.Table, indexes ...*schema.Index) {
 		}
 		b.P("ON").Table(t)
 		s.index(b, idx)
+		if idx.NullsNotDistinct {
+			b.P("NULLS NOT DISTINCT")
+		}
 		s.append(&migrate.Change{
 			Cmd:     b.String(),
 			Comment: fmt.Sprintf("create index %q to table: %q", idx.Name, t.Name),
