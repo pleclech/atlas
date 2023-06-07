@@ -395,12 +395,12 @@ func (i *inspect) addIndexes(s *schema.Schema, rows *sql.Rows) error {
 	names := make(map[string]*schema.Index)
 	for rows.Next() {
 		var (
-			uniq, primary, included                       bool
+			uniq, primary, included, nulls_not_distinct   bool
 			table, name, typ                              string
 			desc, nullsfirst, nullslast                   sql.NullBool
 			column, contype, pred, expr, comment, options sql.NullString
 		)
-		if err := rows.Scan(&table, &name, &typ, &column, &included, &primary, &uniq, &contype, &pred, &expr, &desc, &nullsfirst, &nullslast, &comment, &options); err != nil {
+		if err := rows.Scan(&table, &name, &typ, &column, &included, &primary, &uniq, &nulls_not_distinct, &contype, &pred, &expr, &desc, &nullsfirst, &nullslast, &comment, &options); err != nil {
 			return fmt.Errorf("postgres: scanning indexes for schema %q: %w", s.Name, err)
 		}
 		t, ok := s.Table(table)
@@ -412,10 +412,11 @@ func (i *inspect) addIndexes(s *schema.Schema, rows *sql.Rows) error {
 		if !ok {
 			constrained := contype.Valid && contype.String == "u"
 			idx = &schema.Index{
-				Name:        name,
-				Unique:      uniq,
-				Constrained: constrained,
-				Table:       t,
+				Name:             name,
+				Unique:           uniq,
+				Constrained:      constrained,
+				NullsNotDistinct: nulls_not_distinct,
+				Table:            t,
 				Attrs: []schema.Attr{
 					&IndexType{T: typ},
 				},
@@ -1196,6 +1197,7 @@ SELECT
 	%s AS included,
 	idx.indisprimary AS primary,
 	idx.indisunique AS unique,
+	idx.indnullsnotdistinct AS nulls_not_distinct,
 	c.contype AS constraint_type,
 	pg_get_expr(idx.indpred, idx.indrelid) AS predicate,
 	pg_get_indexdef(idx.indexrelid, idx.ord, false) AS expression,

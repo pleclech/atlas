@@ -595,6 +595,12 @@ func (i *Index) SetConstrained(b bool) *Index {
 	return i
 }
 
+// SetUnique configures the uniqueness of the index.
+func (i *Index) SetNullsNotDistinct(b bool) *Index {
+	i.NullsNotDistinct = b
+	return i
+}
+
 // SetTable configures the table of the index.
 func (i *Index) SetTable(t *Table) *Index {
 	i.Table = t

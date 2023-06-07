@@ -75,12 +75,13 @@ type (
 
 	// An Index represents an index definition.
 	Index struct {
-		Name        string
-		Unique      bool
-		Constrained bool
-		Table       *Table
-		Attrs       []Attr
-		Parts       []*IndexPart
+		Name             string
+		Unique           bool
+		Constrained      bool
+		NullsNotDistinct bool
+		Table            *Table
+		Attrs            []Attr
+		Parts            []*IndexPart
 	}
 
 	// An IndexPart represents an index part that

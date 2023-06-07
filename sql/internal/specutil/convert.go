@@ -283,11 +283,12 @@ func Index(spec *sqlspec.Index, parent *schema.Table, partFns ...func(*sqlspec.I
 		return nil, fmt.Errorf(`"constrained" can only be used with "unique" indexes`)
 	}
 	i := &schema.Index{
-		Name:        spec.Name,
-		Unique:      spec.Unique,
-		Constrained: constrained,
-		Table:       parent,
-		Parts:       parts,
+		Name:             spec.Name,
+		Unique:           spec.Unique,
+		Constrained:      constrained,
+		NullsNotDistinct: spec.NullsNotDistinct,
+		Table:            parent,
+		Parts:            parts,
 	}
 	if err := convertCommentFromSpec(spec, &i.Attrs); err != nil {
 		return nil, err
@@ -599,7 +600,7 @@ func normalizeQuotes(s string) (string, error) {
 
 // FromIndex converts schema.Index to sqlspec.Index.
 func FromIndex(idx *schema.Index, partFns ...func(*schema.IndexPart, *sqlspec.IndexPart)) (*sqlspec.Index, error) {
-	spec := &sqlspec.Index{Name: idx.Name, Unique: idx.Unique, Constrained: idx.Constrained}
+	spec := &sqlspec.Index{Name: idx.Name, Unique: idx.Unique, Constrained: idx.Constrained, NullsNotDistinct: idx.NullsNotDistinct}
 	convertCommentFromSchema(idx.Attrs, &spec.Extra.Attrs)
 	spec.Parts = make([]*sqlspec.IndexPart, len(idx.Parts))
 	for i, p := range idx.Parts {

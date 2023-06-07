@@ -377,12 +377,12 @@ func (s *state) modifyTable(ctx context.Context, modify *schema.ModifyTable) err
 				}
 			}
 			// Index modification requires rebuilding the index.
-			if change.To.Constrained {
+			if change.To.Constrained || change.To.NullsNotDistinct {
 				alter = append(alter, &schema.AddIndex{I: change.To})
 			} else {
 				addI = append(addI, change.To)
 			}
-			if change.From.Constrained {
+			if change.From.Constrained || change.To.NullsNotDistinct {
 				alter = append(alter, &schema.DropIndex{I: change.From})
 			} else {
 				dropI = append(dropI, change.From)
@@ -985,6 +985,9 @@ func (s *state) addIndexes(t *schema.Table, indexes ...*schema.Index) {
 		b := s.Build("CREATE")
 		if idx.Unique {
 			b.P("UNIQUE")
+		}
+		if idx.NullsNotDistinct {
+			b.P("NULLS NOT DISTINCT")
 		}
 		b.P("INDEX")
 		if c := (Concurrently{}); sqlx.Has(idx.Attrs, &c) {
