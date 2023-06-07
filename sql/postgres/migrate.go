@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -469,12 +470,27 @@ func (s *state) modifyTable(ctx context.Context, modify *schema.ModifyTable) err
 	return nil
 }
 
+func isAlterDrop(change schema.Change) bool {
+	switch change.(type) {
+	case *schema.DropAttr, *schema.DropCheck, *schema.DropColumn,
+		*schema.DropForeignKey, *schema.DropIndex, *schema.DropTrigger:
+		return true
+	}
+	return false
+}
+
 // alterTable modifies the given table by executing on it a list of changes in one SQL statement.
 func (s *state) alterTable(t *schema.Table, changes []schema.Change) error {
 	var (
 		reverse    []schema.Change
 		reversible = true
 	)
+
+	// reorder changes first all drop, then all add.
+	sort.Slice(changes, func(i, j int) bool {
+		return isAlterDrop(changes[i]) && !isAlterDrop(changes[j])
+	})
+
 	build := func(alter *alterChange, changes []schema.Change) (string, error) {
 		b := s.Build("ALTER TABLE").Table(t)
 		err := b.MapCommaErr(changes, func(i int, b *sqlx.Builder) error {
@@ -514,7 +530,18 @@ func (s *state) alterTable(t *schema.Table, changes []schema.Change) error {
 					}
 				}
 			case *schema.AddIndex:
-				b.P("ADD CONSTRAINT").Ident(change.I.Name).P("UNIQUE")
+				if change.I.Constrained {
+					b.P("ADD CONSTRAINT")
+				} else {
+					b.P("ADD INDEX")
+				}
+				b.Ident(change.I.Name)
+				if change.I.Unique {
+					b.P("UNIQUE")
+				}
+				if change.I.NullsNotDistinct {
+					b.P("NULLS NOT DISTINCT")
+				}
 				s.indexParts(b, change.I.Parts)
 				// Skip reversing this operation as it is the inverse of
 				// the operation below and should not be used besides this.
@@ -962,6 +989,9 @@ func (s *state) addContraint(t *schema.Table, idx *schema.Index) {
 		b.Ident(idx.Name)
 	}
 	b.P("UNIQUE")
+	if idx.NullsNotDistinct {
+		b.P("NULLS NOT DISTINCT")
+	}
 	s.index(b, idx)
 	s.append(&migrate.Change{
 		Cmd:     b.String(),

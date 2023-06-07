@@ -269,6 +269,8 @@ const (
 
 	ChangeConstraint
 
+	ChangeNullsNotDistinct
+
 	// ChangeParts describes a change to one or more of the index parts.
 	// For example, index keeps its previous name, but the columns order
 	// was changed.

@@ -403,6 +403,12 @@ func (d *Diff) indexChange(from, to *schema.Index) schema.ChangeKind {
 	if from.Unique != to.Unique {
 		change |= schema.ChangeUnique
 	}
+	if from.Constrained != to.Constrained {
+		change |= schema.ChangeConstraint
+	}
+	if from.NullsNotDistinct != to.NullsNotDistinct {
+		change |= schema.ChangeNullsNotDistinct
+	}
 	if d.IndexAttrChanged(from.Attrs, to.Attrs) {
 		change |= schema.ChangeAttr
 	}
