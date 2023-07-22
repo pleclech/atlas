@@ -1127,7 +1127,7 @@ WHERE
 ORDER BY
 	t1.table_name, t1.ordinal_position
 `
-	fksQuery = `
+	slow_fksQuery = `
 SELECT
     t1.constraint_name,
     t1.table_name,
@@ -1157,6 +1157,31 @@ ORDER BY
     t1.constraint_name,
     t2.ordinal_position
 `
+	fksQuery = `
+SELECT distinct
+	  c.constraint_name
+    , x.table_name
+    , x.column_name
+    , x.table_schema
+    , y.table_schema as foreign_schema_name
+    , y.table_name as foreign_table_name
+    , y.column_name as foreign_column_name
+    , c.update_rule
+    , c.delete_rule 
+    , x.ordinal_position
+FROM information_schema.referential_constraints c
+INNER JOIN information_schema.key_column_usage x ON
+ x.constraint_name = c.constraint_name
+INNER JOIN information_schema.key_column_usage y ON
+ y.ordinal_position = x.position_in_unique_constraint 
+ AND y.constraint_name = c.unique_constraint_name and y.constraint_schema = x.constraint_schema 
+WHERE
+ x.constraint_schema = $1
+ AND x.table_name IN (%s)
+ORDER BY
+ c.constraint_name,
+ x.ordinal_position, x.table_name 
+ `
 
 	// Query to list table check constraints.
 	checksQuery = `

@@ -95,8 +95,8 @@ func ScanStrings(rows *sql.Rows) ([]string, error) {
 // caller.
 func SchemaFKs(s *schema.Schema, rows *sql.Rows) error {
 	for rows.Next() {
-		var name, table, column, tSchema, refTable, refColumn, refSchema, updateRule, deleteRule string
-		if err := rows.Scan(&name, &table, &column, &tSchema, &refTable, &refColumn, &refSchema, &updateRule, &deleteRule); err != nil {
+		var name, table, column, tSchema, refTable, refColumn, refSchema, updateRule, deleteRule, ordinalPosition string
+		if err := rows.Scan(&name, &table, &column, &tSchema, &refTable, &refColumn, &refSchema, &updateRule, &deleteRule, &ordinalPosition); err != nil {
 			return err
 		}
 		t, ok := s.Table(table)
