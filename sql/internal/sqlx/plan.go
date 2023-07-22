@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 
 	"ariga.io/atlas/sql/migrate"
 	"ariga.io/atlas/sql/schema"
@@ -27,43 +26,15 @@ func ApplyChanges(ctx context.Context, changes []schema.Change, p execPlanner, o
 	if err != nil {
 		return err
 	}
-
-	batchCnt := 1000
-	batch := make([]string, 0, batchCnt)
-	runBatch := func(cmd string) error {
-		lBatch := len(batch)
-		if lBatch > 0 && (cmd == "" || lBatch > batchCnt) {
-			all := strings.Join(batch, "; ")
-			if _, err := p.ExecContext(ctx, all); err != nil {
-				return err
-			}
-			batch = batch[:0]
-		}
-		if cmd != "" {
-			batch = append(batch, cmd)
-		}
-		return nil
-	}
-
 	for _, c := range plan.Changes {
-		if len(c.Args) == 0 {
-			if err := runBatch(c.Cmd); err != nil {
-				return err
+		if _, err := p.ExecContext(ctx, c.Cmd, c.Args...); err != nil {
+			if c.Comment != "" {
+				err = fmt.Errorf("%s: %w", c.Comment, err)
 			}
-		} else {
-			if err := runBatch(""); err != nil {
-				return err
-			}
-			if _, err := p.ExecContext(ctx, c.Cmd, c.Args...); err != nil {
-				if c.Comment != "" {
-					err = fmt.Errorf("%s: %w", c.Comment, err)
-				}
-				return err
-			}
+			return err
 		}
 	}
-
-	return runBatch("")
+	return nil
 }
 
 // DetachCycles takes a list of schema changes, and detaches
