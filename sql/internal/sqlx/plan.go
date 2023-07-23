@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"ariga.io/atlas/sql/migrate"
 	"ariga.io/atlas/sql/schema"
@@ -26,6 +27,51 @@ func ApplyChanges(ctx context.Context, changes []schema.Change, p execPlanner, o
 	if err != nil {
 		return err
 	}
+
+	opt := &migrate.PlanOptions{}
+	for _, o := range opts {
+		o(opt)
+	}
+
+	batchCnt := opt.MultiStatementsBatchSize
+	if batchCnt > 0 {
+		batch := make([]string, 0, batchCnt+1)
+		runBatch := func(cmd string) error {
+			lBatch := len(batch)
+			if lBatch > 0 && (cmd == "" || lBatch >= batchCnt) {
+				all := strings.Join(batch, "; ")
+				if _, err := p.ExecContext(ctx, all); err != nil {
+					return err
+				}
+				batch = batch[:0]
+			}
+			if cmd != "" {
+				batch = append(batch, cmd)
+			}
+			return nil
+		}
+
+		for _, c := range plan.Changes {
+			if len(c.Args) == 0 {
+				if err := runBatch(c.Cmd); err != nil {
+					return err
+				}
+			} else {
+				if err := runBatch(""); err != nil {
+					return err
+				}
+				if _, err := p.ExecContext(ctx, c.Cmd, c.Args...); err != nil {
+					if c.Comment != "" {
+						err = fmt.Errorf("%s: %w", c.Comment, err)
+					}
+					return err
+				}
+			}
+		}
+
+		return runBatch("")
+	}
+
 	for _, c := range plan.Changes {
 		if _, err := p.ExecContext(ctx, c.Cmd, c.Args...); err != nil {
 			if c.Comment != "" {
