@@ -1158,30 +1158,52 @@ ORDER BY
     t2.ordinal_position
 `
 	fksQuery = `
-SELECT distinct
-	  c.constraint_name
-    , x.table_name
-    , x.column_name
-    , x.table_schema
-    , y.table_schema as foreign_schema_name
-    , y.table_name as foreign_table_name
-    , y.column_name as foreign_column_name
-    , c.update_rule
-    , c.delete_rule 
-    , x.ordinal_position
-FROM information_schema.referential_constraints c
-INNER JOIN information_schema.key_column_usage x ON
- x.constraint_name = c.constraint_name
-INNER JOIN information_schema.key_column_usage y ON
- y.ordinal_position = x.position_in_unique_constraint 
- AND y.constraint_name = c.unique_constraint_name and y.constraint_schema = x.constraint_schema 
-WHERE
- x.constraint_schema = $1
- AND x.table_name IN (%s)
-ORDER BY
- c.constraint_name,
- x.ordinal_position, x.table_name 
- `
+	SELECT
+		pgc.conname AS constraint_name,
+		src.relname AS table_name,
+		t2.attname AS column_name,
+		pgn.nspname AS table_schema,
+		dst.relname AS referenced_table_name,
+		t3.attname AS referenced_column_name,
+		pgndst.nspname AS referenced_schema,
+		CASE pgc.confupdtype
+			WHEN 'a' THEN 'NO ACTION'
+			WHEN 'r' THEN 'RESTRICT'
+            WHEN 'c' THEN 'CASCADE'
+            WHEN 'n' THEN 'SET NULL'
+            WHEN 'd' THEN 'SET DEFAULT'
+		END AS update_rule,
+		CASE pgc.confdeltype
+			WHEN 'a' THEN 'NO ACTION'
+			WHEN 'r' THEN 'RESTRICT'
+            WHEN 'c' THEN 'CASCADE'
+            WHEN 'n' THEN 'SET NULL'
+            WHEN 'd' THEN 'SET DEFAULT'
+		END AS delete_rule
+	FROM pg_constraint pgc  
+	INNER JOIN pg_namespace AS pgn ON (pgn.oid = pgc.connamespace AND pgn.nspname=$1)
+	INNER JOIN pg_class AS src ON src.oid = pgc.conrelid
+	INNER JOIN pg_class AS dst ON dst.oid= pgc.confrelid
+	INNER JOIN pg_namespace AS pgndst ON (pgndst.oid = dst.relnamespace)
+	CROSS JOIN LATERAL (
+		SELECT a.conkey, a.conkey_index, b.confkey
+		FROM pg_constraint p
+		CROSS JOIN LATERAL UNNEST(p.conkey) WITH ORDINALITY AS a(conkey, conkey_index)
+		CROSS JOIN LATERAL UNNEST(p.confkey) WITH ORDINALITY AS b(confkey, confkey_index)
+		WHERE p.oid = pgc.oid
+		AND a.conkey_index=b.confkey_index
+	) AS t1
+	-- inner join lateral (select unnest(conkey) conkey, unnest(confkey) confkey from pg_constraint p where p.oid=pgc.oid) as t1 on true
+	CROSS JOIN LATERAL (SELECT attname FROM pg_attribute WHERE attrelid=pgc.conrelid AND attnum=t1.conkey) AS t2
+	CROSS JOIN LATERAL (SELECT attname FROM pg_attribute WHERE attrelid=pgc.confrelid AND attnum=t1.confkey) AS t3
+	WHERE 
+		 pgc.contype='f'
+	 AND src.relname in (%s)
+	ORDER BY
+		src.relname,
+		pgc.conname,
+		t1.conkey_index
+`
 
 	// Query to list table check constraints.
 	checksQuery = `
