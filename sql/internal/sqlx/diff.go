@@ -105,6 +105,11 @@ func (d *Diff) RealmDiff(from, to *schema.Realm) ([]schema.Change, error) {
 		for _, t := range s1.Tables {
 			changes = append(changes, &schema.AddTable{T: t})
 		}
+
+		// add triggers
+		for _, tg := range s1.Triggers {
+			changes = append(changes, &schema.AddTrigger{TG: tg})
+		}
 	}
 	return changes, nil
 }
