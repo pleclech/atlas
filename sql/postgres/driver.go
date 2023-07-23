@@ -125,6 +125,7 @@ func (d *Driver) dev() *sqlx.DevDriver {
 				e.Schema = s
 			}
 		},
+		MultiStatementsBatchSize: 400,
 	}
 }
 
@@ -188,7 +189,7 @@ func (d *Driver) Snapshot(ctx context.Context) (migrate.RestoreFunc, error) {
 			if err != nil {
 				return err
 			}
-			return d.ApplyChanges(ctx, changes)
+			return d.ApplyChanges(ctx, changes, d.dev().SetMultiStatementsOption)
 		}, nil
 	}
 	// Not bound to a schema.
@@ -205,7 +206,7 @@ func (d *Driver) Snapshot(ctx context.Context) (migrate.RestoreFunc, error) {
 		if err != nil {
 			return err
 		}
-		return d.ApplyChanges(ctx, changes)
+		return d.ApplyChanges(ctx, changes, d.dev().SetMultiStatementsOption)
 	}
 	// Postgres is considered clean, if there are no schemas or the public schema has no tables.
 	if len(realm.Schemas) == 0 {

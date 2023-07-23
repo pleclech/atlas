@@ -32,6 +32,12 @@ type DevDriver struct {
 	// PatchColumn allows providing a custom function to patch
 	// columns that hold a schema reference.
 	PatchColumn func(*schema.Schema, *schema.Column)
+
+	MultiStatementsBatchSize int
+}
+
+func (d *DevDriver) SetMultiStatementsOption(opts *migrate.PlanOptions) {
+	opts.MultiStatementsBatchSize = d.MultiStatementsBatchSize
 }
 
 // NormalizeRealm implements the schema.Normalizer interface.
@@ -95,18 +101,19 @@ func (d *DevDriver) NormalizeRealm(ctx context.Context, r *schema.Realm) (nr *sc
 			s.Name = names[s.Name]
 		}
 	}
+
 	// Delete the dev resources, and return
 	// the source realm to its initial state.
 	defer func() {
 		patch(r)
-		if rerr := d.ApplyChanges(ctx, reverse); rerr != nil {
+		if rerr := d.ApplyChanges(ctx, reverse, d.SetMultiStatementsOption); rerr != nil {
 			if err != nil {
 				rerr = fmt.Errorf("%w: %v", err, rerr)
 			}
 			err = rerr
 		}
 	}()
-	if err := d.ApplyChanges(ctx, changes); err != nil {
+	if err := d.ApplyChanges(ctx, changes, d.SetMultiStatementsOption); err != nil {
 		return nil, err
 	}
 	if nr, err = d.InspectRealm(ctx, opts); err != nil {
