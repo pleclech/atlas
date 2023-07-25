@@ -106,7 +106,7 @@ func (a *Analyzer) Diagnostics(_ context.Context, p *sqlcheck.Pass) (diags []sql
 						})
 					}
 				case *schema.ModifyIndex:
-					if c.Change.Is(schema.ChangeUnique) && c.To.Unique && p.File.IndexSpan(m.T, c.To)&sqlcheck.SpanAdded == 0 {
+					if ((c.Change.Is(schema.ChangeUnique) && c.To.Unique) || (c.Change.Is(schema.ChangeNullsNotDistinct) && c.To.NullsNotDistinct)) && p.File.IndexSpan(m.T, c.To)&sqlcheck.SpanAdded == 0 {
 						diags = append(diags, sqlcheck.Diagnostic{
 							Code: codeModUniqueI,
 							Pos:  sc.Stmt.Pos,

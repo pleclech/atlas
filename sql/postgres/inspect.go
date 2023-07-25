@@ -38,6 +38,11 @@ func (i *inspect) InspectRealm(ctx context.Context, opts *schema.InspectRealmOpt
 	r.Attrs = append(r.Attrs, &CType{V: i.ctype})
 	if len(schemas) > 0 {
 		mode := sqlx.ModeInspectRealm(opts)
+		if mode.Is(schema.InspectFunctions) {
+			if err := i.inspectFunctions(ctx, r, nil); err != nil {
+				return nil, err
+			}
+		}
 		if mode.Is(schema.InspectTables) {
 			if err := i.inspectTables(ctx, r, nil); err != nil {
 				return nil, err
@@ -46,6 +51,11 @@ func (i *inspect) InspectRealm(ctx context.Context, opts *schema.InspectRealmOpt
 		}
 		if mode.Is(schema.InspectViews) {
 			if err := i.inspectViews(ctx, r, nil); err != nil {
+				return nil, err
+			}
+		}
+		if mode.Is(schema.InspectTriggers) {
+			if err := i.inspectTriggers(ctx, r, nil); err != nil {
 				return nil, err
 			}
 		}
@@ -74,6 +84,11 @@ func (i *inspect) InspectSchema(ctx context.Context, name string, opts *schema.I
 	}
 	r := schema.NewRealm(schemas...).SetCollation(i.collate)
 	r.Attrs = append(r.Attrs, &CType{V: i.ctype})
+	if sqlx.ModeInspectSchema(opts).Is(schema.InspectFunctions) {
+		if err := i.inspectFunctions(ctx, r, opts); err != nil {
+			return nil, err
+		}
+	}
 	if sqlx.ModeInspectSchema(opts).Is(schema.InspectTables) {
 		if err := i.inspectTables(ctx, r, opts); err != nil {
 			return nil, err
@@ -85,10 +100,131 @@ func (i *inspect) InspectSchema(ctx context.Context, name string, opts *schema.I
 			return nil, err
 		}
 	}
+	if sqlx.ModeInspectSchema(opts).Is(schema.InspectTriggers) {
+		if err := i.inspectTriggers(ctx, r, opts); err != nil {
+			return nil, err
+		}
+	}
 	if err := i.inspectEnums(ctx, r); err != nil {
 		return nil, err
 	}
 	return sqlx.ExcludeSchema(r.Schemas[0], opts.Exclude)
+}
+
+func (i *inspect) inspectFunctions(ctx context.Context, r *schema.Realm, opts *schema.InspectOptions) error {
+	if err := i.functions(ctx, r, opts); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (i *inspect) functions(ctx context.Context, realm *schema.Realm, opts *schema.InspectOptions) error {
+	var (
+		args  []any
+		query = fmt.Sprintf(functionsQuery, nArgs(0, len(realm.Schemas)))
+	)
+	for _, s := range realm.Schemas {
+		args = append(args, s.Name)
+	}
+	rows, err := i.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tSchema, name, comment, args, returns, language, definition sql.NullString
+		if err := rows.Scan(&tSchema, &name, &comment, &args, &returns, &language, &definition); err != nil {
+			return fmt.Errorf("scan function information: %w", err)
+		}
+		if !sqlx.ValidString(tSchema) || !sqlx.ValidString(name) {
+			return fmt.Errorf("invalid schema or function name: %q.%q", tSchema.String, name.String)
+		}
+		s, ok := realm.Schema(tSchema.String)
+		if !ok {
+			return fmt.Errorf("schema %q was not found in realm", tSchema.String)
+		}
+
+		def := definition.String
+		lang := "LANGUAGE " + language.String
+		langIndex := strings.Index(def, lang)
+		if langIndex < 0 {
+			return fmt.Errorf("can't find language for function %q.%q", tSchema.String, name.String)
+		}
+
+		def = strings.Trim(def[langIndex+len(lang):], "\n ")
+
+		f := &schema.Function{Name: name.String, Args: args.String, Returns: returns.String, Language: language.String, Definition: def}
+		s.AddFunctions(f)
+		if sqlx.ValidString(comment) {
+			f.SetComment(comment.String)
+		}
+	}
+	return rows.Close()
+}
+
+func (i *inspect) inspectTriggers(ctx context.Context, realm *schema.Realm, opts *schema.InspectOptions) error {
+	if err := i.triggers(ctx, realm, opts); err != nil {
+		return err
+	}
+	return nil
+}
+
+// triggers queries and appends the trigger of the given table.
+func (i *inspect) triggers(ctx context.Context, realm *schema.Realm, opts *schema.InspectOptions) error {
+	var (
+		args  []any
+		query = fmt.Sprintf(tableTriggersQuery, nArgs(0, len(realm.Schemas)))
+	)
+	for _, s := range realm.Schemas {
+		args = append(args, s.Name)
+	}
+
+	rows, err := i.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tSchema, relation, name, tg_type, event, description, level, fn_name sql.NullString
+		if err := rows.Scan(&tSchema, &relation, &name, &tg_type, &event, &description, &level, &fn_name); err != nil {
+			return fmt.Errorf("scan trigger information: %w", err)
+		}
+
+		if !sqlx.ValidString(tSchema) || !sqlx.ValidString(name) {
+			return fmt.Errorf("invalid schema or trigger name: %q.%q", tSchema.String, name.String)
+		}
+
+		s, ok := realm.Schema(tSchema.String)
+		if !ok {
+			return fmt.Errorf("schema %q was not found in realm", tSchema.String)
+		}
+
+		t, ok := s.Table(relation.String)
+		if !ok {
+			return fmt.Errorf("table %q not found in schema %q", relation.String, tSchema.String)
+		}
+
+		tmp := strings.Split(fn_name.String, ".")
+		if len(tmp) != 2 {
+			return fmt.Errorf("invalid qualified function name %q", fn_name.String)
+		}
+
+		fnSchema, ok := realm.Schema(tmp[0])
+		if !ok {
+			return fmt.Errorf("can't find schema %q in realm for function %q", tmp[0], tmp[1])
+		}
+		fn, ok := fnSchema.Function(tmp[1], "")
+		if !ok {
+			return fmt.Errorf("can't find function %s in schema %q", tmp[1], tmp[0])
+		}
+
+		tg := &schema.Trigger{Name: name.String, Type: tg_type.String, Event: event.String, ForEach: level.String, Execute: fn}
+		s.AddTrigger(tg, t)
+		if sqlx.ValidString(description) {
+			tg.SetComment(description.String)
+		}
+	}
+	return rows.Close()
 }
 
 func (i *inspect) inspectTables(ctx context.Context, r *schema.Realm, opts *schema.InspectOptions) error {
@@ -359,13 +495,13 @@ func (i *inspect) addIndexes(s *schema.Schema, rows *sql.Rows) error {
 	names := make(map[string]*schema.Index)
 	for rows.Next() {
 		var (
-			uniq, primary, included                                               bool
+			uniq, primary, included, nulls_not_distinct                           bool
 			table, name, typ                                                      string
 			desc, nullsfirst, nullslast, opcdefault                               sql.NullBool
 			column, constraints, pred, expr, comment, options, opcname, opcparams sql.NullString
 		)
 		if err := rows.Scan(
-			&table, &name, &typ, &column, &included, &primary, &uniq, &constraints, &pred, &expr,
+			&table, &name, &typ, &column, &included, &primary, &uniq, &nulls_not_distinct, &constraints, &pred, &expr,
 			&desc, &nullsfirst, &nullslast, &comment, &options, &opcname, &opcdefault, &opcparams,
 		); err != nil {
 			return fmt.Errorf("postgres: scanning indexes for schema %q: %w", s.Name, err)
@@ -377,9 +513,10 @@ func (i *inspect) addIndexes(s *schema.Schema, rows *sql.Rows) error {
 		idx, ok := names[name]
 		if !ok {
 			idx = &schema.Index{
-				Name:   name,
-				Unique: uniq,
-				Table:  t,
+				Name:             name,
+				Unique:           uniq,
+				NullsNotDistinct: nulls_not_distinct,
+				Table:            t,
 				Attrs: []schema.Attr{
 					&IndexType{T: typ},
 				},
@@ -392,9 +529,13 @@ func (i *inspect) addIndexes(s *schema.Schema, rows *sql.Rows) error {
 				if err := json.Unmarshal([]byte(constraints.String), &m); err != nil {
 					return fmt.Errorf("postgres: unmarshaling index constraints: %w", err)
 				}
+
+				idx.Constrained = true
+
 				for n, t := range m {
 					idx.Attrs = append(idx.Attrs, &Constraint{N: n, T: t})
 				}
+
 			}
 			if sqlx.ValidString(pred) {
 				idx.Attrs = append(idx.Attrs, &IndexPredicate{P: pred.String})
@@ -1245,7 +1386,7 @@ ORDER BY
     n.nspname, e.enumtypid, e.enumsortorder
 `
 	// Query to list foreign-keys.
-	fksQuery = `
+	slow_fksQuery = `
 SELECT 
     fk.constraint_name,
     fk.table_name,
@@ -1285,6 +1426,53 @@ SELECT
 	    fk.conrelid, fk.constraint_name, fk.ord
 `
 
+	fksQuery = `
+SELECT
+	pgc.conname AS constraint_name,
+	src.relname AS table_name,
+	t2.attname AS column_name,
+	pgn.nspname AS table_schema,
+	dst.relname AS referenced_table_name,
+	t3.attname AS referenced_column_name,
+	pgndst.nspname AS referenced_schema,
+	CASE pgc.confupdtype
+		WHEN 'a' THEN 'NO ACTION'
+		WHEN 'r' THEN 'RESTRICT'
+		WHEN 'c' THEN 'CASCADE'
+		WHEN 'n' THEN 'SET NULL'
+		WHEN 'd' THEN 'SET DEFAULT'
+	END AS update_rule,
+	CASE pgc.confdeltype
+		WHEN 'a' THEN 'NO ACTION'
+		WHEN 'r' THEN 'RESTRICT'
+		WHEN 'c' THEN 'CASCADE'
+		WHEN 'n' THEN 'SET NULL'
+		WHEN 'd' THEN 'SET DEFAULT'
+	END AS delete_rule
+FROM pg_constraint pgc  
+INNER JOIN pg_namespace AS pgn ON (pgn.oid = pgc.connamespace AND pgn.nspname=$1)
+INNER JOIN pg_class AS src ON src.oid = pgc.conrelid
+INNER JOIN pg_class AS dst ON dst.oid= pgc.confrelid
+INNER JOIN pg_namespace AS pgndst ON (pgndst.oid = dst.relnamespace)
+CROSS JOIN LATERAL (
+	SELECT a.conkey, a.conkey_index, b.confkey
+	FROM pg_constraint p
+	CROSS JOIN LATERAL UNNEST(p.conkey) WITH ORDINALITY AS a(conkey, conkey_index)
+	CROSS JOIN LATERAL UNNEST(p.confkey) WITH ORDINALITY AS b(confkey, confkey_index)
+	WHERE p.oid = pgc.oid
+	AND a.conkey_index=b.confkey_index
+) AS t1
+-- inner join lateral (select unnest(conkey) conkey, unnest(confkey) confkey from pg_constraint p where p.oid=pgc.oid) as t1 on true
+CROSS JOIN LATERAL (SELECT attname FROM pg_attribute WHERE attrelid=pgc.conrelid AND attnum=t1.conkey) AS t2
+CROSS JOIN LATERAL (SELECT attname FROM pg_attribute WHERE attrelid=pgc.confrelid AND attnum=t1.confkey) AS t3
+WHERE 
+	 pgc.contype='f'
+ AND src.relname in (%s)
+ORDER BY
+	src.relname,
+	pgc.conname,
+	t1.conkey_index
+`
 	// Query to list table check constraints.
 	checksQuery = `
 SELECT
@@ -1324,6 +1512,7 @@ SELECT
 	%s AS included,
 	idx.indisprimary AS primary,
 	idx.indisunique AS unique,
+	idx.indnullsnotdistinct AS nulls_not_distinct,
 	con.nametypes AS constraints,
 	pg_get_expr(idx.indpred, idx.indrelid) AS predicate,
 	pg_get_indexdef(idx.indexrelid, idx.ord, false) AS expression,
@@ -1360,5 +1549,62 @@ WHERE
 	AND t.relname IN (%s)
 ORDER BY
 	table_name, index_name, idx.ord
+`
+)
+
+const (
+	functionsQuery = `
+	SELECT n.nspname AS schema
+		,proname AS name
+		,d.description
+		,pg_get_function_identity_arguments(p.oid) AS args
+		,pg_get_function_result(p.oid) AS return
+		,l.lanname as language
+		,pg_get_functiondef(p.oid) as definition
+	FROM pg_proc p
+		JOIN pg_type t ON p.prorettype = t.oid
+		LEFT OUTER JOIN pg_description d ON p.oid = d.objoid
+		LEFT OUTER JOIN pg_language l on p.prolang = l.oid
+		LEFT OUTER JOIN pg_namespace n ON n.oid = p.pronamespace
+	WHERE p.prokind = 'f'
+		AND n.nspname in (%s)
+	`
+
+	tableTriggersQuery = `
+SELECT
+	ns.nspname as schema,
+	tbl.relname as relation,
+	trg.tgname as name,
+	CASE trg.tgtype::INTEGER & 66
+		WHEN 2 THEN 'BEFORE'
+		WHEN 64 THEN 'INSTEAD OF'
+		ELSE 'AFTER'
+	END AS type,
+	CASE trg.tgtype::INTEGER & cast(28 AS INT2)
+		WHEN 16 THEN 'UPDATE'
+	 	WHEN 8 THEN 'DELETE'
+	 	WHEN 4 THEN 'INSERT'
+		WHEN 20 THEN 'INSERT OR UPDATE'
+		WHEN 28 THEN 'INSERT OR UPDATE OR DELETE'
+		WHEN 24 THEN 'UPDATE OR DELETE'
+		WHEN 12 THEN 'INSERT OR DELETE'
+	END AS event,
+	obj_description(trg.oid) AS desciption,
+	CASE trg.tgtype::INTEGER & 1
+   		WHEN 1 THEN 'ROW'::TEXT
+		ELSE 'STATEMENT'::TEXT
+	END AS level,
+	n.nspname || '.' || proc.proname AS function_name
+FROM 
+	pg_trigger trg
+	JOIN pg_proc proc ON proc.oid = trg.tgfoid
+	JOIN pg_catalog.pg_namespace n ON n.oid = proc.pronamespace
+	JOIN pg_class tbl ON trg.tgrelid = tbl.oid
+	JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+WHERE
+	trg.tgenabled='O' AND
+	ns.nspname in (%s) AND
+	trg.tgname not like 'RI_ConstraintTrigger%%' AND 
+	trg.tgname not like 'pg_sync_pg%%';
 `
 )

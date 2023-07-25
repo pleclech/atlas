@@ -59,6 +59,16 @@ func (*diff) SchemaObjectDiff(_, _ *schema.Schema) ([]schema.Change, error) {
 	return nil, nil
 }
 
+// TODO: implement.
+func (d *diff) FunctionAttrDiff(from, to *schema.Function) ([]schema.Change, error) {
+	return nil, nil
+}
+
+// TODO: implement.
+func (d *diff) TriggerAttrDiff(from, to *schema.Trigger) ([]schema.Change, error) {
+	return nil, nil
+}
+
 // TableAttrDiff returns a changeset for migrating table attributes from one state to the other.
 func (d *diff) TableAttrDiff(from, to *schema.Table) ([]schema.Change, error) {
 	var changes []schema.Change
@@ -100,6 +110,10 @@ func (d *diff) TableAttrDiff(from, to *schema.Table) ([]schema.Change, error) {
 		}
 	}
 	return append(changes, checks...), nil
+}
+
+func (d *diff) ViewAttrChanged(_, _ *schema.View) bool {
+	return false // Not implemented.
 }
 
 // ColumnChange returns the schema changes (if any) for migrating one column to the other.
@@ -172,14 +186,7 @@ func (d *diff) IsGeneratedIndexName(_ *schema.Table, idx *schema.Index) bool {
 
 // IndexAttrChanged reports if the index attributes were changed.
 func (*diff) IndexAttrChanged(from, to []schema.Attr) bool {
-	if indexType(from).T != indexType(to).T {
-		return true
-	}
-	var (
-		fromP, toP     IndexParser
-		fromHas, toHas = sqlx.Has(from, &fromP), sqlx.Has(to, &toP)
-	)
-	return fromHas != toHas || (fromHas && fromP.P != toP.P)
+	return indexType(from).T != indexType(to).T
 }
 
 // IndexPartAttrChanged reports if the index-part attributes (collation or prefix) were changed.

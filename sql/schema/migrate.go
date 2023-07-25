@@ -64,6 +64,52 @@ type (
 		Changes []Change
 	}
 
+	// AddFunction describes a function creation change.
+	AddFunction struct {
+		F     *Function
+		Extra []Clause // Extra clauses and options.
+	}
+
+	// DropFunction describes a function removal change.
+	DropFunction struct {
+		F     *Function
+		Extra []Clause // Extra clauses.
+	}
+
+	// ModifyFunction describes a table modification change.
+	ModifyFunction struct {
+		F       *Function
+		Changes []Change
+	}
+
+	ModifyFunctionDefinition struct {
+		From, To *Function
+		Change   ChangeKind
+	}
+
+	// AddTrigger describes a function creation change.
+	AddTrigger struct {
+		TG    *Trigger
+		Extra []Clause // Extra clauses and options.
+	}
+
+	// DropTrigger describes a trigger removal change.
+	DropTrigger struct {
+		TG    *Trigger
+		Extra []Clause // Extra clauses.
+	}
+
+	// ModifyTrigger describes a trigger modification change.
+	ModifyTrigger struct {
+		TG      *Trigger
+		Changes []Change
+	}
+
+	ModifyTriggerDefinition struct {
+		From, To *Trigger
+		Change   ChangeKind
+	}
+
 	// AddTable describes a table creation change.
 	AddTable struct {
 		T     *Table
@@ -304,6 +350,13 @@ const (
 	ChangeUpdateAction
 	// ChangeDeleteAction describes a change to the foreign-key delete action.
 	ChangeDeleteAction
+
+	ChangeConstraint
+	ChangeNullsNotDistinct
+
+	ChangeFunctionDefinition
+
+	ChangeTriggerDefinition
 )
 
 // Is reports whether c is match the given change kind.
@@ -527,41 +580,49 @@ func (c Changes) rsearch(f func(Change) bool) int {
 }
 
 // changes.
-func (*AddAttr) change()          {}
-func (*DropAttr) change()         {}
-func (*ModifyAttr) change()       {}
-func (*AddSchema) change()        {}
-func (*DropSchema) change()       {}
-func (*ModifySchema) change()     {}
-func (*AddTable) change()         {}
-func (*DropTable) change()        {}
-func (*ModifyTable) change()      {}
-func (*RenameTable) change()      {}
-func (*AddView) change()          {}
-func (*DropView) change()         {}
-func (*ModifyView) change()       {}
-func (*RenameView) change()       {}
-func (*AddObject) change()        {}
-func (*DropObject) change()       {}
-func (*ModifyObject) change()     {}
-func (*RenameObject) change()     {}
-func (*AddIndex) change()         {}
-func (*DropIndex) change()        {}
-func (*ModifyIndex) change()      {}
-func (*RenameIndex) change()      {}
-func (*AddPrimaryKey) change()    {}
-func (*DropPrimaryKey) change()   {}
-func (*ModifyPrimaryKey) change() {}
-func (*AddCheck) change()         {}
-func (*DropCheck) change()        {}
-func (*ModifyCheck) change()      {}
-func (*AddColumn) change()        {}
-func (*DropColumn) change()       {}
-func (*ModifyColumn) change()     {}
-func (*RenameColumn) change()     {}
-func (*AddForeignKey) change()    {}
-func (*DropForeignKey) change()   {}
-func (*ModifyForeignKey) change() {}
+func (*AddAttr) change()                  {}
+func (*DropAttr) change()                 {}
+func (*ModifyAttr) change()               {}
+func (*AddSchema) change()                {}
+func (*DropSchema) change()               {}
+func (*ModifySchema) change()             {}
+func (*AddFunction) change()              {}
+func (*DropFunction) change()             {}
+func (*ModifyFunction) change()           {}
+func (*ModifyFunctionDefinition) change() {}
+func (*AddTrigger) change()               {}
+func (*DropTrigger) change()              {}
+func (*ModifyTrigger) change()            {}
+func (*ModifyTriggerDefinition) change()  {}
+func (*AddTable) change()                 {}
+func (*DropTable) change()                {}
+func (*ModifyTable) change()              {}
+func (*RenameTable) change()              {}
+func (*AddView) change()                  {}
+func (*DropView) change()                 {}
+func (*ModifyView) change()               {}
+func (*RenameView) change()               {}
+func (*AddObject) change()                {}
+func (*DropObject) change()               {}
+func (*ModifyObject) change()             {}
+func (*RenameObject) change()             {}
+func (*AddIndex) change()                 {}
+func (*DropIndex) change()                {}
+func (*ModifyIndex) change()              {}
+func (*RenameIndex) change()              {}
+func (*AddPrimaryKey) change()            {}
+func (*DropPrimaryKey) change()           {}
+func (*ModifyPrimaryKey) change()         {}
+func (*AddCheck) change()                 {}
+func (*DropCheck) change()                {}
+func (*ModifyCheck) change()              {}
+func (*AddColumn) change()                {}
+func (*DropColumn) change()               {}
+func (*ModifyColumn) change()             {}
+func (*RenameColumn) change()             {}
+func (*AddForeignKey) change()            {}
+func (*DropForeignKey) change()           {}
+func (*ModifyForeignKey) change()         {}
 
 // clauses.
 func (*IfExists) clause()    {}

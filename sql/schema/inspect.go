@@ -46,6 +46,12 @@ const (
 
 	// InspectViews enables schema views inspection.
 	InspectViews
+
+	// InspectFunctions enables schema functions inspection.
+	InspectFunctions
+
+	// InspectTriggers enables schema triggers inspection.
+	InspectTriggers
 )
 
 // Is reports whether the given mode is enabled.

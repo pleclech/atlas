@@ -27,10 +27,18 @@ type (
 		Schema *sqlspec.Schema
 		Tables []*sqlspec.Table
 		Views  []*sqlspec.View
+
+		Functions []*sqlspec.Function
+		Triggers  []*sqlspec.Trigger
 	}
 	doc struct {
-		Tables  []*sqlspec.Table  `spec:"table"`
-		Views   []*sqlspec.View   `spec:"view"`
+		Functions []*sqlspec.Function `spec:"function"`
+
+		Tables []*sqlspec.Table `spec:"table"`
+		Views  []*sqlspec.View  `spec:"view"`
+
+		Triggers []*sqlspec.Trigger `spec:"trigger"`
+
 		Schemas []*sqlspec.Schema `spec:"schema"`
 	}
 )
@@ -48,6 +56,9 @@ func Marshal(v any, marshaler schemahcl.Marshaler, convertFunc func(*schema.Sche
 		d.Tables = spec.Tables
 		d.Views = spec.Views
 		d.Schemas = []*sqlspec.Schema{spec.Schema}
+
+		d.Functions = spec.Functions
+		d.Triggers = spec.Triggers
 	case *schema.Realm:
 		for _, s := range s.Schemas {
 			spec, err := convertFunc(s)
@@ -57,6 +68,9 @@ func Marshal(v any, marshaler schemahcl.Marshaler, convertFunc func(*schema.Sche
 			d.Tables = append(d.Tables, spec.Tables...)
 			d.Views = append(d.Views, spec.Views...)
 			d.Schemas = append(d.Schemas, spec.Schema)
+
+			d.Functions = append(d.Functions, spec.Functions...)
+			d.Triggers = append(d.Triggers, spec.Triggers...)
 		}
 		if err := QualifyTables(d.Tables); err != nil {
 			return nil, err

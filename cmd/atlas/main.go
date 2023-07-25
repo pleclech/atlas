@@ -6,8 +6,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"time"
 
 	"ariga.io/atlas/cmd/atlas/internal/cmdapi"
@@ -27,6 +29,11 @@ import (
 	_ "github.com/libsql/libsql-client-go/libsql"
 	_ "github.com/mattn/go-sqlite3"
 )
+
+func newContext() context.Context {
+	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	return ctx
+}
 
 func main() {
 	cmdapi.Root.SetOut(os.Stdout)

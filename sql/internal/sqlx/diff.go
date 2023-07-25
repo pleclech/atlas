@@ -35,6 +35,14 @@ type (
 		// one state to the other. For example, changing schema custom types.
 		SchemaObjectDiff(from, to *schema.Schema) ([]schema.Change, error)
 
+		// FunctionAttrDiff returns a changeset for migrating function attributes from
+		// one state to the other.
+		FunctionAttrDiff(from, to *schema.Function) ([]schema.Change, error)
+
+		// TriggerAttrDiff returns a changeset for migrating function attributes from
+		// one state to the other.
+		TriggerAttrDiff(from, to *schema.Trigger) ([]schema.Change, error)
+
 		// TableAttrDiff returns a changeset for migrating table attributes from
 		// one state to the other. For example, dropping or adding a `CHECK` constraint.
 		TableAttrDiff(from, to *schema.Table) ([]schema.Change, error)
@@ -114,11 +122,20 @@ func (d *Diff) RealmDiff(from, to *schema.Realm, options ...schema.DiffOption) (
 			continue
 		}
 		changes = opts.AddOrSkip(changes, &schema.AddSchema{S: s1})
+
+		for _, f := range s1.Functions {
+			changes = append(changes, &schema.AddFunction{F: f})
+		}
+
 		for _, t := range s1.Tables {
 			changes = opts.AddOrSkip(changes, &schema.AddTable{T: t})
 		}
 		for _, v := range s1.Views {
 			changes = opts.AddOrSkip(changes, &schema.AddView{V: v})
+		}
+
+		for _, tg := range s1.Triggers {
+			changes = append(changes, &schema.AddTrigger{TG: tg})
 		}
 	}
 	return d.mayAnnotate(changes, opts)
@@ -153,6 +170,31 @@ func (d *Diff) schemaDiff(from, to *schema.Schema, opts *schema.DiffOptions) ([]
 		return nil, err
 	}
 	changes = opts.AddOrSkip(changes, change...)
+
+	// Drop or modify functions.
+	for _, f1 := range from.Functions {
+		f2, ok := to.Function(f1.Name, f1.Args)
+		if !ok {
+			changes = append(changes, &schema.DropFunction{F: f1})
+			continue
+		}
+		change, err := d.FunctionDiff(f1, f2)
+		if err != nil {
+			return nil, err
+		}
+		if len(change) > 0 {
+			changes = append(changes, &schema.ModifyFunction{
+				F:       f2,
+				Changes: change,
+			})
+		}
+	}
+	// Add functions.
+	for _, f1 := range to.Functions {
+		if _, ok := from.Function(f1.Name, f1.Args); !ok {
+			changes = append(changes, &schema.AddFunction{F: f1})
+		}
+	}
 
 	// Drop or modify tables.
 	for _, t1 := range from.Tables {
@@ -200,6 +242,96 @@ func (d *Diff) schemaDiff(from, to *schema.Schema, opts *schema.DiffOptions) ([]
 			changes = opts.AddOrSkip(changes, &schema.AddView{V: v1})
 		}
 	}
+
+	// Drop or modify triggers.
+	for _, tg1 := range from.Triggers {
+		tg2, ok := to.Trigger(tg1.Name)
+		if !ok {
+			changes = append(changes, &schema.DropTrigger{TG: tg1})
+			continue
+		}
+		change, err := d.TriggerDiff(tg1, tg2)
+		if err != nil {
+			return nil, err
+		}
+		if len(change) > 0 {
+			changes = append(changes, &schema.ModifyTrigger{
+				TG:      tg2,
+				Changes: change,
+			})
+		}
+	}
+	// Add triggers.
+	for _, tg1 := range to.Triggers {
+		if _, ok := from.Trigger(tg1.Name); !ok {
+			changes = append(changes, &schema.AddTrigger{TG: tg1})
+		}
+	}
+
+	return changes, nil
+}
+
+// FunctionDiff implements the schema.FunctionDiffer interface and returns a list of
+// changes that need to be applied in order to move from one state to the other.
+func (d *Diff) FunctionDiff(from, to *schema.Function) ([]schema.Change, error) {
+	if from.Name != to.Name {
+		return nil, fmt.Errorf("mismatched function names: %q != %q", from.Name, to.Name)
+	}
+
+	if from.Args != to.Args {
+		return nil, fmt.Errorf("mismatched function args: %q != %q", from.Args, to.Args)
+	}
+
+	var changes []schema.Change
+
+	// Drop or modify attributes (collations, checks, etc).
+	change, err := d.FunctionAttrDiff(from, to)
+	if err != nil {
+		return nil, err
+	}
+	changes = append(changes, change...)
+
+	if from.Returns != to.Returns {
+		changes = append(changes, &schema.DropFunction{
+			F: from,
+		})
+	}
+
+	if len(changes) > 0 || from.Definition != to.Definition {
+		changes = append(changes, &schema.ModifyFunctionDefinition{
+			From:   from,
+			To:     to,
+			Change: schema.ChangeFunctionDefinition,
+		})
+	}
+
+	return changes, nil
+}
+
+// TriggerDiff implements the schema.TriggerDiffer interface and returns a list of
+// changes that need to be applied in order to move from one state to the other.
+func (d *Diff) TriggerDiff(from, to *schema.Trigger) ([]schema.Change, error) {
+	if from.Name != to.Name {
+		return nil, fmt.Errorf("mismatched trigger names: %q != %q", from.Name, to.Name)
+	}
+
+	var changes []schema.Change
+
+	// Drop or modify attributes (collations, checks, etc).
+	change, err := d.TriggerAttrDiff(from, to)
+	if err != nil {
+		return nil, err
+	}
+	changes = append(changes, change...)
+
+	if from.Event != to.Event || from.Execute.Definition != to.Execute.Definition || from.ForEach != to.ForEach || from.Type != to.Type {
+		changes = append(changes, &schema.ModifyTriggerDefinition{
+			From:   from,
+			To:     to,
+			Change: schema.ChangeTriggerDefinition,
+		})
+	}
+
 	return changes, nil
 }
 
@@ -376,6 +508,12 @@ func (d *Diff) indexChange(from, to *schema.Index) schema.ChangeKind {
 	var change schema.ChangeKind
 	if from.Unique != to.Unique {
 		change |= schema.ChangeUnique
+	}
+	if from.Constrained != to.Constrained {
+		change |= schema.ChangeConstraint
+	}
+	if from.NullsNotDistinct != to.NullsNotDistinct {
+		change |= schema.ChangeNullsNotDistinct
 	}
 	if d.IndexAttrChanged(from.Attrs, to.Attrs) {
 		change |= schema.ChangeAttr

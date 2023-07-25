@@ -385,9 +385,6 @@ const (
 	IndexTypeFullText = "FULLTEXT"
 	IndexTypeSpatial  = "SPATIAL"
 
-	IndexParserNGram = "ngram"
-	IndexParserMeCab = "mecab"
-
 	EngineInnoDB = "InnoDB"
 	EngineMyISAM = "MyISAM"
 	EngineMemory = "Memory"

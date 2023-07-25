@@ -35,6 +35,9 @@ func (i *inspect) InspectRealm(ctx context.Context, opts *schema.InspectRealmOpt
 		opts = &schema.InspectRealmOption{}
 	}
 	r := schema.NewRealm(schemas...)
+	if sqlx.ModeInspectRealm(opts).Is(schema.InspectFunctions) {
+		// TODO: implement functions inspection.
+	}
 	if sqlx.ModeInspectRealm(opts).Is(schema.InspectTables) {
 		for _, s := range schemas {
 			tables, err := i.tables(ctx, nil)
@@ -54,6 +57,9 @@ func (i *inspect) InspectRealm(ctx context.Context, opts *schema.InspectRealmOpt
 		if err := i.inspectViews(ctx, r, nil); err != nil {
 			return nil, err
 		}
+	}
+	if sqlx.ModeInspectRealm(opts).Is(schema.InspectTriggers) {
+		// TODO: implement functions inspection.
 	}
 	return sqlx.ExcludeRealm(r, opts.Exclude)
 }
@@ -79,6 +85,9 @@ func (i *inspect) InspectSchema(ctx context.Context, name string, opts *schema.I
 		opts = &schema.InspectOptions{}
 	}
 	r := schema.NewRealm(schemas...)
+	if sqlx.ModeInspectSchema(opts).Is(schema.InspectFunctions) {
+		// TODO: implement functions inspection.
+	}
 	if sqlx.ModeInspectSchema(opts).Is(schema.InspectTables) {
 		tables, err := i.tables(ctx, opts)
 		if err != nil {

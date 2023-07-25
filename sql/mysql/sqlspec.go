@@ -85,10 +85,8 @@ var (
 	hclState = schemahcl.New(
 		schemahcl.WithTypes("table.column.type", TypeRegistry.Specs()),
 		schemahcl.WithTypes("view.column.type", TypeRegistry.Specs()),
-		schemahcl.WithScopedEnums("view.check_option", schema.ViewCheckOptionLocal, schema.ViewCheckOptionCascaded),
 		schemahcl.WithScopedEnums("table.engine", EngineInnoDB, EngineMyISAM, EngineMemory, EngineCSV, EngineNDB),
 		schemahcl.WithScopedEnums("table.index.type", IndexTypeBTree, IndexTypeHash, IndexTypeFullText, IndexTypeSpatial),
-		schemahcl.WithScopedEnums("table.index.parser", IndexParserNGram, IndexParserMeCab),
 		schemahcl.WithScopedEnums("table.primary_key.type", IndexTypeBTree, IndexTypeHash, IndexTypeFullText, IndexTypeSpatial),
 		schemahcl.WithScopedEnums("table.column.as.type", stored, persistent, virtual),
 		schemahcl.WithScopedEnums("table.foreign_key.on_update", specutil.ReferenceVars...),
@@ -156,9 +154,6 @@ func convertPK(spec *sqlspec.PrimaryKey, parent *schema.Table) (*schema.Index, e
 	if err := convertIndexType(spec, idx); err != nil {
 		return nil, err
 	}
-	if err := convertIndexParser(spec, idx); err != nil {
-		return nil, err
-	}
 	return idx, nil
 }
 
@@ -171,9 +166,6 @@ func convertIndex(spec *sqlspec.Index, parent *schema.Table) (*schema.Index, err
 	if err := convertIndexType(spec, idx); err != nil {
 		return nil, err
 	}
-	if err := convertIndexParser(spec, idx); err != nil {
-		return nil, err
-	}
 	return idx, nil
 }
 
@@ -184,17 +176,6 @@ func convertIndexType(spec specutil.Attrer, idx *schema.Index) error {
 			return err
 		}
 		idx.AddAttrs(&IndexType{T: t})
-	}
-	return nil
-}
-
-func convertIndexParser(spec specutil.Attrer, idx *schema.Index) error {
-	if attr, ok := spec.Attr("parser"); ok {
-		p, err := attr.String()
-		if err != nil {
-			return err
-		}
-		idx.AddAttrs(&IndexParser{P: p})
 	}
 	return nil
 }
@@ -267,7 +248,7 @@ func convertColumnType(spec *sqlspec.Column) (schema.Type, error) {
 
 // schemaSpec converts from a concrete MySQL schema to Atlas specification.
 func schemaSpec(s *schema.Schema) (*specutil.SchemaSpec, error) {
-	spec, err := specutil.FromSchema(s, tableSpec, viewSpec)
+	spec, err := specutil.FromSchema(s, tableSpec, viewSpec, functionSpec, triggerSpec)
 	if err != nil {
 		return nil, err
 	}
@@ -278,6 +259,16 @@ func schemaSpec(s *schema.Schema) (*specutil.SchemaSpec, error) {
 		spec.Schema.Extra.Attrs = append(spec.Schema.Extra.Attrs, schemahcl.StringAttr("collate", c))
 	}
 	return spec, nil
+}
+
+// functionSpec converts from a concrete Postgres sqlspec.Function to a schema.Function.
+func functionSpec(function *schema.Function) (*sqlspec.Function, error) {
+	return specutil.FromFunction(function)
+}
+
+// triggerSpec converts from a concrete Postgres schema.Trigger into a sqlspec.Trigger.
+func triggerSpec(tg *schema.Trigger) (*sqlspec.Trigger, error) {
+	return specutil.FromTrigger(tg)
 }
 
 // tableSpec converts from a concrete MySQL sqlspec.Table to a schema.Table.
@@ -346,17 +337,6 @@ func indexTypeSpec(idx *schema.Index, attrs []*schemahcl.Attr) []*schemahcl.Attr
 	// Avoid printing the index type if it is the default.
 	if i := (IndexType{}); sqlx.Has(idx.Attrs, &i) && i.T != IndexTypeBTree {
 		attrs = append(attrs, specutil.VarAttr("type", strings.ToUpper(i.T)))
-	}
-	// Print fulltext index parser. Use the pre-defined parser variables if known.
-	if p := (IndexParser{}); sqlx.Has(idx.Attrs, &p) && p.P != "" {
-		attr := schemahcl.StringAttr("parser", p.P)
-		for _, p1 := range []string{IndexParserNGram, IndexParserMeCab} {
-			if strings.EqualFold(p.P, p1) {
-				attr = specutil.VarAttr("parser", p1)
-				break
-			}
-		}
-		attrs = append(attrs, attr)
 	}
 	return attrs
 }

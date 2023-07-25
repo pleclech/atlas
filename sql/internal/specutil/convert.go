@@ -5,6 +5,7 @@
 package specutil
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -36,20 +37,30 @@ type (
 	IndexSpecFunc          func(*schema.Index) (*sqlspec.Index, error)
 	ForeignKeySpecFunc     func(*schema.ForeignKey) (*sqlspec.ForeignKey, error)
 	CheckSpecFunc          func(*schema.Check) *sqlspec.Check
+
+	ConvertFunctionFunc func(*sqlspec.Function, *schema.Schema) (*schema.Function, error)
+	FunctionSpecFunc    func(*schema.Function) (*sqlspec.Function, error)
+
+	ConvertTriggerFunc func(*sqlspec.Trigger, *schema.Table) (*schema.Trigger, error)
+	TriggerSpecFunc    func(*schema.Trigger) (*sqlspec.Trigger, error)
 )
 
 type (
 	// ScanDoc represents a scanned HCL document.
 	ScanDoc struct {
-		Schemas []*sqlspec.Schema
-		Tables  []*sqlspec.Table
-		Views   []*sqlspec.View
+		Schemas   []*sqlspec.Schema
+		Tables    []*sqlspec.Table
+		Views     []*sqlspec.View
+		Functions []*sqlspec.Function
+		Triggers  []*sqlspec.Trigger
 	}
 	// ScanFuncs represents a set of scan functions
 	// used to convert the HCL document to the Realm.
 	ScanFuncs struct {
-		Table ConvertTableFunc
-		View  ConvertViewFunc
+		Table    ConvertTableFunc
+		View     ConvertViewFunc
+		Function ConvertFunctionFunc
+		Trigger  ConvertTriggerFunc
 	}
 )
 
@@ -64,6 +75,44 @@ func Scan(r *schema.Realm, doc *ScanDoc, funcs *ScanFuncs) error {
 		r.AddSchemas(s1)
 		byName[s.Name] = s1
 	}
+
+	for _, sf := range doc.Functions {
+		name, err := SchemaName(sf.Schema)
+		if err != nil {
+			return fmt.Errorf("specutil: cannot extract schema name for function %q: %w", sf.Name, err)
+		}
+		s, ok := byName[name]
+		if !ok {
+			return fmt.Errorf("specutil: schema %q not found for function %q", name, sf.Name)
+		}
+		t, err := funcs.Function(sf, s)
+		if err != nil {
+			return fmt.Errorf("specutil: cannot convert function %q: %w", sf.Name, err)
+		}
+		s.AddFunctions(t)
+	}
+
+	for _, stg := range doc.Triggers {
+		tmp, err := QualifiedTableName(stg.On)
+		if err != nil {
+			return fmt.Errorf("specutil: cannot extract schema name for triger %q: %w", stg.Name, err)
+		}
+		name := tmp[0]
+		s, ok := byName[name]
+		if !ok {
+			return fmt.Errorf("specutil: schema %q not found for trigger %q", name, stg.Name)
+		}
+		tbl, ok := s.Table(tmp[1])
+		if !ok {
+			return fmt.Errorf("specutil: can't find table %q into schema %q for trigger %q", tmp[1], name, stg.Name)
+		}
+		trg, err := funcs.Trigger(stg, tbl)
+		if err != nil {
+			return err
+		}
+		s.AddTriggers(trg)
+	}
+
 	tableFKs := make(map[*schema.Table][]*sqlspec.ForeignKey)
 	for _, st := range doc.Tables {
 		name, err := SchemaName(st.Schema)
@@ -148,6 +197,43 @@ func Scan(r *schema.Realm, doc *ScanDoc, funcs *ScanFuncs) error {
 	return nil
 }
 
+func Function(spec *sqlspec.Function, parent *schema.Schema) (*schema.Function, error) {
+	fn := &schema.Function{
+		Name:       spec.Name,
+		Schema:     parent,
+		Args:       spec.Args,
+		Returns:    spec.Returns,
+		Language:   spec.Language,
+		Definition: spec.Definition,
+	}
+
+	if err := convertCommentFromSpec(spec, &fn.Attrs); err != nil {
+		return nil, err
+	}
+	return fn, nil
+}
+
+func Trigger(spec *sqlspec.Trigger, parent *schema.Table) (*schema.Trigger, error) {
+	fn, err := FunctionByRef(parent.Schema.Realm, spec.Execute)
+	if err != nil {
+		return nil, err
+	}
+
+	tg := &schema.Trigger{
+		Table:   parent,
+		Name:    spec.Name,
+		Type:    spec.Type,
+		Event:   spec.Event,
+		ForEach: spec.ForEach,
+		Execute: fn,
+	}
+
+	if err := convertCommentFromSpec(spec, &tg.Attrs); err != nil {
+		return nil, err
+	}
+	return tg, nil
+}
+
 // Table converts a sqlspec.Table to a schema.Table. Table conversion is done without converting
 // ForeignKeySpecs into ForeignKeys, as the target tables do not necessarily exist in the schema
 // at this point. Instead, the linking is done by the Schema function.
@@ -211,13 +297,6 @@ func View(spec *sqlspec.View, parent *schema.Schema, convertColumn ConvertViewCo
 	}
 	if err := convertCommentFromSpec(spec, &v.Attrs); err != nil {
 		return nil, err
-	}
-	if c, ok := spec.Extra.Attr("check_option"); ok {
-		o, err := c.String()
-		if err != nil {
-			return nil, fmt.Errorf("specutil: expect string definition for attribute view.%s.check_option: %w", spec.Name, err)
-		}
-		v.SetCheckOption(o)
 	}
 	return v, nil
 }
@@ -304,11 +383,17 @@ func Index(spec *sqlspec.Index, parent *schema.Table, partFns ...func(*sqlspec.I
 			parts = append(parts, part)
 		}
 	}
+	constrained := spec.Constrained
+	if constrained && !spec.Unique {
+		return nil, fmt.Errorf(`"constrained" can only be used with "unique" indexes`)
+	}
 	i := &schema.Index{
-		Name:   spec.Name,
-		Unique: spec.Unique,
-		Table:  parent,
-		Parts:  parts,
+		Name:             spec.Name,
+		Unique:           spec.Unique,
+		Constrained:      constrained,
+		NullsNotDistinct: spec.NullsNotDistinct,
+		Table:            parent,
+		Parts:            parts,
 	}
 	if err := convertCommentFromSpec(spec, &i.Attrs); err != nil {
 		return nil, err
@@ -386,14 +471,36 @@ func linkForeignKeys(tbl *schema.Table, fks []*sqlspec.ForeignKey) error {
 }
 
 // FromSchema converts a schema.Schema into sqlspec.Schema and []sqlspec.Table.
-func FromSchema(s *schema.Schema, specT TableSpecFunc, specV ViewSpecFunc) (*SchemaSpec, error) {
+func FromSchema(s *schema.Schema, specT TableSpecFunc, specV ViewSpecFunc, specFn FunctionSpecFunc, specTg TriggerSpecFunc) (*SchemaSpec, error) {
 	var (
 		spec = &sqlspec.Schema{
 			Name: s.Name,
 		}
-		views  = make([]*sqlspec.View, 0, len(s.Views))
-		tables = make([]*sqlspec.Table, 0, len(s.Tables))
+		views     = make([]*sqlspec.View, 0, len(s.Views))
+		tables    = make([]*sqlspec.Table, 0, len(s.Tables))
+		functions = make([]*sqlspec.Function, 0, len(s.Functions))
+		triggers  = make([]*sqlspec.Trigger, 0, len(s.Triggers))
 	)
+
+	for _, f := range s.Functions {
+		function, err := specFn(f)
+		if err != nil {
+			return nil, err
+		}
+		if s.Name != "" {
+			function.Schema = SchemaRef(s.Name)
+		}
+		functions = append(functions, function)
+	}
+
+	for _, tg := range s.Triggers {
+		trigger, err := specTg(tg)
+		if err != nil {
+			return nil, err
+		}
+		triggers = append(triggers, trigger)
+	}
+
 	for _, t := range s.Tables {
 		table, err := specT(t)
 		if err != nil {
@@ -416,10 +523,45 @@ func FromSchema(s *schema.Schema, specT TableSpecFunc, specV ViewSpecFunc) (*Sch
 	}
 	convertCommentFromSchema(s.Attrs, &spec.Extra.Attrs)
 	return &SchemaSpec{
-		Schema: spec,
-		Tables: tables,
-		Views:  views,
+		Schema:    spec,
+		Tables:    tables,
+		Views:     views,
+		Functions: functions,
+		Triggers:  triggers,
 	}, nil
+}
+
+// FromFunction converts a schema.Function to a sqlspec.Function.
+func FromFunction(f *schema.Function) (*sqlspec.Function, error) {
+	spec := &sqlspec.Function{
+		Name:       f.Name,
+		Args:       f.Args,
+		Returns:    f.Returns,
+		Language:   f.Language,
+		Definition: f.Definition,
+	}
+
+	if f.Schema != nil {
+		spec.Schema = SchemaRef(f.Schema.Name)
+		spec.Qualifier = f.Schema.Name
+	}
+
+	convertCommentFromSchema(f.Attrs, &spec.Extra.Attrs)
+	return spec, nil
+}
+
+// FromTrigger converts a schema.Trigger to a sqlspec.Trigger.
+func FromTrigger(tg *schema.Trigger) (*sqlspec.Trigger, error) {
+	spec := &sqlspec.Trigger{
+		On:      QualifiedTableRef(tg.Table.Schema.Name, tg.Table.Name),
+		Name:    tg.Name,
+		Type:    tg.Type,
+		Event:   tg.Event,
+		ForEach: tg.ForEach,
+		Execute: FunctionRef(tg.Execute.Schema.Name, tg.Execute.Name),
+	}
+	convertCommentFromSchema(tg.Attrs, &spec.Extra.Attrs)
+	return spec, nil
 }
 
 // FromTable converts a schema.Table to a sqlspec.Table.
@@ -487,15 +629,6 @@ func FromView(v *schema.View, colFn ViewColumnSpecFunc) (*sqlspec.View, error) {
 		Attrs: []*schemahcl.Attr{
 			schemahcl.StringAttr("as", as),
 		},
-	}
-	if c := (schema.ViewCheckOption{}); sqlx.Has(v.Attrs, &c) {
-		switch strings.ToUpper(c.V) {
-		case schema.ViewCheckOptionNone, "":
-		case schema.ViewCheckOptionLocal, schema.ViewCheckOptionCascaded:
-			embed.Attrs = append(embed.Attrs, VarAttr("check_option", c.V))
-		default:
-			embed.Attrs = append(embed.Attrs, schemahcl.StringAttr("check_option", c.V))
-		}
 	}
 	var (
 		deps         = make([]*schemahcl.Ref, 0, len(v.Deps))
@@ -659,7 +792,7 @@ func ExprValue(expr schema.Expr) (cty.Value, error) {
 
 // FromIndex converts schema.Index to sqlspec.Index.
 func FromIndex(idx *schema.Index, partFns ...func(*schema.Index, *schema.IndexPart, *sqlspec.IndexPart) error) (*sqlspec.Index, error) {
-	spec := &sqlspec.Index{Name: idx.Name, Unique: idx.Unique}
+	spec := &sqlspec.Index{Name: idx.Name, Unique: idx.Unique, Constrained: idx.Constrained, NullsNotDistinct: idx.NullsNotDistinct}
 	convertCommentFromSchema(idx.Attrs, &spec.Extra.Attrs)
 	spec.Parts = make([]*sqlspec.IndexPart, len(idx.Parts))
 	for i, p := range idx.Parts {
@@ -750,6 +883,42 @@ func SchemaName(ref *schemahcl.Ref) (string, error) {
 		return "", fmt.Errorf("specutil: expected 1 schema ref, got %d", len(vs))
 	}
 	return vs[0], nil
+}
+
+func QualifiedTableName(ref *schemahcl.Ref) ([]string, error) {
+	if ref == nil {
+		return nil, errors.New("missing 'table' attribute")
+	}
+	parts := strings.Split(ref.V, ".")
+	if len(parts) != 3 || parts[0] != "$table" {
+		return nil, errors.New("expected ref format of $table.schema.ident")
+	}
+	return parts[1:], nil
+}
+
+func FunctionRef(schemaName, funcName string) *schemahcl.Ref {
+	return &schemahcl.Ref{V: fmt.Sprintf("$function.%s.%s", schemaName, funcName)}
+}
+
+func QualifiedTableRef(schema string, tableName string) *schemahcl.Ref {
+	return &schemahcl.Ref{V: "$table." + schema + "." + tableName}
+}
+
+func FunctionByRef(realm *schema.Realm, ref *schemahcl.Ref) (*schema.Function, error) {
+	tmp := strings.Split(ref.V, ".")
+	if len(tmp) != 3 || tmp[0] != "$function" {
+		return nil, fmt.Errorf("specutil: invalid ref string, expecting $function.schema.ident instead of %q", ref)
+	}
+	s, ok := realm.Schema(tmp[1])
+	if !ok {
+		return nil, fmt.Errorf("specutil: can't find schema %q into realm", tmp[1])
+	}
+	f, ok := s.Function(tmp[2], "")
+	if !ok {
+		return nil, fmt.Errorf("specutil: failed to find function %q into schema %q", tmp[2], s.Name)
+	}
+
+	return f, nil
 }
 
 // ColumnByRef returns a column from the table by its reference.

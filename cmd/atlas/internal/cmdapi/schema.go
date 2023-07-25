@@ -26,6 +26,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func init() {
+	schemaCmd := schemaCmd()
+	schemaCmd.AddCommand(
+		schemaApplyCmd(),
+		schemaCleanCmd(),
+		schemaDiffCmd(),
+		schemaFmtCmd(),
+		schemaInspectCmd(),
+	)
+	Root.AddCommand(schemaCmd)
+}
+
 // schemaCmd represents the subcommand 'atlas schema'.
 func schemaCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -423,11 +435,6 @@ type schemaInspectFlags struct {
 
 // schemaInspectCmd represents the 'atlas schema inspect' subcommand.
 func schemaInspectCmd() *cobra.Command {
-	cmd, _ := schemaInspectCmdWithFlags()
-	return cmd
-}
-
-func schemaInspectCmdWithFlags() (*cobra.Command, *schemaInspectFlags) {
 	var (
 		flags schemaInspectFlags
 		cmd   = &cobra.Command{
@@ -467,7 +474,7 @@ flag.
 	addFlagFormat(cmd.Flags(), &flags.logFormat)
 	cobra.CheckErr(cmd.MarkFlagRequired(flagURL))
 	cmd.MarkFlagsMutuallyExclusive(flagLog, flagFormat)
-	return cmd, &flags
+	return cmd
 }
 
 func schemaInspectRun(cmd *cobra.Command, _ []string, flags schemaInspectFlags) error {

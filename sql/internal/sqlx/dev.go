@@ -61,6 +61,15 @@ func (d *DevDriver) NormalizeRealm(ctx context.Context, r *schema.Realm) (nr *sc
 				&schema.IfNotExists{},
 			},
 		})
+
+		for _, f := range s.Functions {
+			// If objects are not strongly connected.
+			if f.Schema != s {
+				f.Schema = s
+			}
+			changes = append(changes, &schema.AddFunction{F: f})
+		}
+
 		for _, t := range s.Tables {
 			changes = append(changes, &schema.AddTable{
 				T: t,
@@ -71,6 +80,9 @@ func (d *DevDriver) NormalizeRealm(ctx context.Context, r *schema.Realm) (nr *sc
 		}
 		for _, o := range s.Objects {
 			changes = append(changes, &schema.AddObject{O: o})
+		}
+		for _, tg := range s.Triggers {
+			changes = append(changes, &schema.AddTrigger{TG: tg})
 		}
 	}
 	if err := d.Driver.ApplyChanges(ctx, changes); err != nil {

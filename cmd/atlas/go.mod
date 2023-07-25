@@ -25,7 +25,7 @@ require (
 	github.com/zclconf/go-cty v1.8.0
 	gocloud.dev v0.27.0
 	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
-	golang.org/x/mod v0.10.0
+	golang.org/x/mod v0.12.0
 )
 
 require (

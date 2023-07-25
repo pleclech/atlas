@@ -198,7 +198,7 @@ func ValuesEqual(v1, v2 []string) bool {
 // ModeInspectSchema returns the InspectMode or its default.
 func ModeInspectSchema(o *schema.InspectOptions) schema.InspectMode {
 	if o == nil || o.Mode == 0 {
-		return schema.InspectSchemas | schema.InspectTables | schema.InspectViews
+		return schema.InspectSchemas | schema.InspectTables | schema.InspectViews | schema.InspectFunctions | schema.InspectTriggers
 	}
 	return o.Mode
 }
@@ -206,7 +206,7 @@ func ModeInspectSchema(o *schema.InspectOptions) schema.InspectMode {
 // ModeInspectRealm returns the InspectMode or its default.
 func ModeInspectRealm(o *schema.InspectRealmOption) schema.InspectMode {
 	if o == nil || o.Mode == 0 {
-		return schema.InspectSchemas | schema.InspectTables | schema.InspectViews
+		return schema.InspectSchemas | schema.InspectTables | schema.InspectViews | schema.InspectFunctions | schema.InspectTriggers
 	}
 	return o.Mode
 }
@@ -247,6 +247,48 @@ func (b *Builder) Ident(s string) *Builder {
 		b.WriteByte(b.QuoteClosing)
 		b.WriteByte(' ')
 	}
+	return b
+}
+
+func (b *Builder) FunctionDefinition(f *schema.Function) *Builder {
+	b.WriteString("\n RETURNS ")
+	b.WriteString(f.Returns)
+	b.WriteString("\n LANGUAGE ")
+	b.WriteString(f.Language)
+	b.WriteString("\n ")
+	b.WriteString(f.Definition)
+	return b
+}
+
+// Function writes the function identifier to the builder, prefixed
+// with the schema name if exists.
+func (b *Builder) Function(f *schema.Function) *Builder {
+	switch {
+	// Custom qualifier.
+	case b.Schema != nil:
+		// Empty means skip prefix.
+		if *b.Schema != "" {
+			b.Ident(*b.Schema)
+			b.rewriteLastByte('.')
+		}
+	// Default schema qualifier.
+	case f.Schema != nil && f.Schema.Name != "":
+		b.Ident(f.Schema.Name)
+		b.rewriteLastByte('.')
+	}
+
+	b.Ident(f.Name).Wrap(func(b *Builder) { b.P(f.Args) })
+
+	return b
+}
+
+// Trigger writes the function identifier to the builder
+func (b *Builder) Trigger(tg *schema.Trigger) *Builder {
+	return b.Ident(tg.Name)
+}
+
+func (b *Builder) TriggerDefinition(tg *schema.Trigger) *Builder {
+	b.P(tg.Type).P(tg.Event).P("ON").Table(tg.Table).P("FOR EACH").P(tg.ForEach).P("EXECUTE FUNCTION").Function(tg.Execute)
 	return b
 }
 

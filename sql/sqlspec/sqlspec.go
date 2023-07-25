@@ -13,7 +13,8 @@ import (
 type (
 	// Schema holds a specification for a Schema.
 	Schema struct {
-		Name string `spec:"name,name"`
+		Name      string      `spec:"name,name"`
+		Functions []*Function `spec:"function"`
 		schemahcl.DefaultExtension
 	}
 
@@ -58,10 +59,12 @@ type (
 
 	// Index holds a specification for the index key of a table.
 	Index struct {
-		Name    string           `spec:",name"`
-		Unique  bool             `spec:"unique,omitempty"`
-		Parts   []*IndexPart     `spec:"on"`
-		Columns []*schemahcl.Ref `spec:"columns"`
+		Name             string           `spec:",name"`
+		Unique           bool             `spec:"unique,omitempty"`
+		Constrained      bool             `spec:"constrained,omitempty"`
+		NullsNotDistinct bool             `spec:"nulls_not_distinct,omitempty"`
+		Parts            []*IndexPart     `spec:"on"`
+		Columns          []*schemahcl.Ref `spec:"columns"`
 		schemahcl.DefaultExtension
 	}
 
@@ -90,6 +93,27 @@ type (
 		schemahcl.DefaultExtension
 	}
 
+	Function struct {
+		Name       string         `spec:",name"`
+		Qualifier  string         `spec:",qualifier"`
+		Schema     *schemahcl.Ref `spec:"schema"`
+		Args       string         `spec:"args"`
+		Returns    string         `spec:"returns"`
+		Language   string         `spec:"language"`
+		Definition string         `spec:"definition"`
+		schemahcl.DefaultExtension
+	}
+
+	Trigger struct {
+		On      *schemahcl.Ref `spec:"on"`
+		Name    string         `spec:",name"`
+		Type    string         `spec:"type"`
+		Event   string         `spec:"event"`
+		ForEach string         `spec:"per"`
+		Execute *schemahcl.Ref `spec:"execute"`
+		schemahcl.DefaultExtension
+	}
+
 	// Type represents a database agnostic column type.
 	Type string
 )
@@ -98,4 +122,6 @@ func init() {
 	schemahcl.Register("view", &View{})
 	schemahcl.Register("table", &Table{})
 	schemahcl.Register("schema", &Schema{})
+	schemahcl.Register("function", &Function{})
+	schemahcl.Register("trigger", &Trigger{})
 }

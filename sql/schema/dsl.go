@@ -129,6 +129,35 @@ func (r *Realm) UnsetCollation() *Realm {
 	return r
 }
 
+func (s *Schema) AddFunctions(functions ...*Function) *Schema {
+	for _, f := range functions {
+		f.SetSchema(s)
+	}
+	s.Functions = append(s.Functions, functions...)
+	return s
+}
+
+func (s *Schema) AddTriggers(triggers ...*Trigger) *Schema {
+	s.Triggers = append(s.Triggers, triggers...)
+	return s
+}
+
+// SetSchema sets the schema (named-database) of the table.
+func (f *Function) SetSchema(s *Schema) *Function {
+	f.Schema = s
+	return f
+}
+
+func (f *Function) SetComment(v string) *Function {
+	ReplaceOrAppend(&f.Attrs, &Comment{Text: v})
+	return f
+}
+
+func (tg *Trigger) SetComment(v string) *Trigger {
+	ReplaceOrAppend(&tg.Attrs, &Comment{Text: v})
+	return tg
+}
+
 // NewTable creates a new Table.
 func NewTable(name string) *Table {
 	return &Table{Name: name}
@@ -259,12 +288,6 @@ func (v *View) AddAttrs(attrs ...Attr) *View {
 // AddDeps adds the given objects as dependencies to the view.
 func (v *View) AddDeps(objs ...Object) *View {
 	v.Deps = append(v.Deps, objs...)
-	return v
-}
-
-// SetCheckOption sets the check option of the view.
-func (v *View) SetCheckOption(opt string) *View {
-	ReplaceOrAppend(&v.Attrs, &ViewCheckOption{V: opt})
 	return v
 }
 
@@ -650,6 +673,18 @@ func (i *Index) SetName(name string) *Index {
 // SetUnique configures the uniqueness of the index.
 func (i *Index) SetUnique(b bool) *Index {
 	i.Unique = b
+	return i
+}
+
+// SetUnique configures the uniqueness of the index.
+func (i *Index) SetConstrained(b bool) *Index {
+	i.Constrained = b
+	return i
+}
+
+// SetUnique configures the uniqueness of the index.
+func (i *Index) SetNullsNotDistinct(b bool) *Index {
+	i.NullsNotDistinct = b
 	return i
 }
 

@@ -24,27 +24,33 @@ func _() {
 	_ = x[ChangeRefTable-4096]
 	_ = x[ChangeUpdateAction-8192]
 	_ = x[ChangeDeleteAction-16384]
+	_ = x[ChangeConstraint-32768]
+	_ = x[ChangeNullsNotDistinct-65536]
+	_ = x[ChangeFunctionDefinition-131072]
 }
 
-const _ChangeKind_name = "NoChangeChangeAttrChangeCharsetChangeCollateChangeCommentChangeNullChangeTypeChangeDefaultChangeGeneratedChangeUniqueChangePartsChangeColumnChangeRefColumnChangeRefTableChangeUpdateActionChangeDeleteAction"
+const _ChangeKind_name = "NoChangeChangeAttrChangeCharsetChangeCollateChangeCommentChangeNullChangeTypeChangeDefaultChangeGeneratedChangeUniqueChangePartsChangeColumnChangeRefColumnChangeRefTableChangeUpdateActionChangeDeleteActionChangeConstraintChangeNullsNotDistinctChangeFunctionDefinition"
 
 var _ChangeKind_map = map[ChangeKind]string{
-	0:     _ChangeKind_name[0:8],
-	1:     _ChangeKind_name[8:18],
-	2:     _ChangeKind_name[18:31],
-	4:     _ChangeKind_name[31:44],
-	8:     _ChangeKind_name[44:57],
-	16:    _ChangeKind_name[57:67],
-	32:    _ChangeKind_name[67:77],
-	64:    _ChangeKind_name[77:90],
-	128:   _ChangeKind_name[90:105],
-	256:   _ChangeKind_name[105:117],
-	512:   _ChangeKind_name[117:128],
-	1024:  _ChangeKind_name[128:140],
-	2048:  _ChangeKind_name[140:155],
-	4096:  _ChangeKind_name[155:169],
-	8192:  _ChangeKind_name[169:187],
-	16384: _ChangeKind_name[187:205],
+	0:      _ChangeKind_name[0:8],
+	1:      _ChangeKind_name[8:18],
+	2:      _ChangeKind_name[18:31],
+	4:      _ChangeKind_name[31:44],
+	8:      _ChangeKind_name[44:57],
+	16:     _ChangeKind_name[57:67],
+	32:     _ChangeKind_name[67:77],
+	64:     _ChangeKind_name[77:90],
+	128:    _ChangeKind_name[90:105],
+	256:    _ChangeKind_name[105:117],
+	512:    _ChangeKind_name[117:128],
+	1024:   _ChangeKind_name[128:140],
+	2048:   _ChangeKind_name[140:155],
+	4096:   _ChangeKind_name[155:169],
+	8192:   _ChangeKind_name[169:187],
+	16384:  _ChangeKind_name[187:205],
+	32768:  _ChangeKind_name[205:221],
+	65536:  _ChangeKind_name[221:243],
+	131072: _ChangeKind_name[243:267],
 }
 
 func (i ChangeKind) String() string {

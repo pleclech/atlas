@@ -30,6 +30,12 @@ func TestFromSpec_SchemaName(t *testing.T) {
 		func(*schema.View) (*sqlspec.View, error) {
 			return &sqlspec.View{}, nil
 		},
+		func(*schema.Function) (*sqlspec.Function, error) {
+			return &sqlspec.Function{}, nil
+		},
+		func(*schema.Trigger) (*sqlspec.Trigger, error) {
+			return &sqlspec.Trigger{}, nil
+		},
 	)
 	require.NoError(t, err)
 	require.Equal(t, sc.Name, spec.Schema.Name)

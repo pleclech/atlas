@@ -152,7 +152,17 @@ func convertColumnType(spec *sqlspec.Column) (schema.Type, error) {
 
 // schemaSpec converts from a concrete SQLite schema to Atlas specification.
 func schemaSpec(s *schema.Schema) (*specutil.SchemaSpec, error) {
-	return specutil.FromSchema(s, tableSpec, viewSpec)
+	return specutil.FromSchema(s, tableSpec, viewSpec, functionSpec, triggerSpec)
+}
+
+// functionSpec converts from a concrete Postgres sqlspec.Function to a schema.Function.
+func functionSpec(function *schema.Function) (*sqlspec.Function, error) {
+	return specutil.FromFunction(function)
+}
+
+// triggerSpec converts from a concrete Postgres schema.Trigger into a sqlspec.Trigger.
+func triggerSpec(tg *schema.Trigger) (*sqlspec.Trigger, error) {
+	return specutil.FromTrigger(tg)
 }
 
 // tableSpec converts from a concrete SQLite sqlspec.Table to a schema.Table.

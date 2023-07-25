@@ -20,6 +20,9 @@ type (
 		Views   []*View
 		Attrs   []Attr   // Attrs and options.
 		Objects []Object // Driver specific objects.
+
+		Functions []*Function
+		Triggers  []*Trigger
 	}
 
 	// An Object represents a generic database object.
@@ -71,11 +74,13 @@ type (
 
 	// An Index represents an index definition.
 	Index struct {
-		Name   string
-		Unique bool
-		Table  *Table
-		Attrs  []Attr
-		Parts  []*IndexPart
+		Name             string
+		Unique           bool
+		Constrained      bool
+		NullsNotDistinct bool
+		Table            *Table
+		Attrs            []Attr
+		Parts            []*IndexPart
 	}
 
 	// An IndexPart represents an index part that
@@ -102,6 +107,26 @@ type (
 		OnUpdate   ReferenceOption
 		OnDelete   ReferenceOption
 	}
+
+	Function struct {
+		Name       string
+		Schema     *Schema
+		Args       string
+		Returns    string
+		Language   string
+		Definition string
+		Attrs      []Attr
+	}
+
+	Trigger struct {
+		Table   *Table
+		Name    string
+		Type    string
+		Event   string
+		ForEach string
+		Execute *Function
+		Attrs   []Attr
+	}
 )
 
 // Schema returns the first schema that matched the given name.
@@ -112,6 +137,31 @@ func (r *Realm) Schema(name string) (*Schema, bool) {
 		}
 	}
 	return nil, false
+}
+
+// Function returns the first functiom that matched the given name, args.
+func (s *Schema) Function(name string, args string) (*Function, bool) {
+	for _, f := range s.Functions {
+		if f.Name == name && f.Args == args {
+			return f, true
+		}
+	}
+	return nil, false
+}
+
+// Trigger returns the first trigger that matched the given name.
+func (s *Schema) Trigger(name string) (*Trigger, bool) {
+	for _, tg := range s.Triggers {
+		if tg.Name == name {
+			return tg, true
+		}
+	}
+	return nil, false
+}
+
+func (s *Schema) AddTrigger(tg *Trigger, t *Table) {
+	tg.Table = t
+	s.Triggers = append(s.Triggers, tg)
 }
 
 // Table returns the first table that matched the given name.
@@ -366,13 +416,6 @@ type (
 	ViewCheckOption struct {
 		V string // LOCAL, CASCADED, NONE, or driver specific.
 	}
-)
-
-// A list of known view check options.
-const (
-	ViewCheckOptionNone     = "NONE"
-	ViewCheckOptionLocal    = "LOCAL"
-	ViewCheckOptionCascaded = "CASCADED"
 )
 
 // objects.

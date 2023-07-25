@@ -81,6 +81,24 @@ func (*diff) SchemaObjectDiff(from, to *schema.Schema) ([]schema.Change, error) 
 	return changes, nil
 }
 
+// FunctionAttrDiff returns a changeset for migrating function attributes from one state to the other.
+func (d *diff) FunctionAttrDiff(from, to *schema.Function) ([]schema.Change, error) {
+	var changes []schema.Change
+	if change := sqlx.CommentDiff(from.Attrs, to.Attrs); change != nil {
+		changes = append(changes, change)
+	}
+	return changes, nil
+}
+
+// TriggerAttrDiff returns a changeset for migrating trigger attributes from one state to the other.
+func (d *diff) TriggerAttrDiff(from, to *schema.Trigger) ([]schema.Change, error) {
+	var changes []schema.Change
+	if change := sqlx.CommentDiff(from.Attrs, to.Attrs); change != nil {
+		changes = append(changes, change)
+	}
+	return changes, nil
+}
+
 // TableAttrDiff returns a changeset for migrating table attributes from one state to the other.
 func (d *diff) TableAttrDiff(from, to *schema.Table) ([]schema.Change, error) {
 	var changes []schema.Change
@@ -93,6 +111,10 @@ func (d *diff) TableAttrDiff(from, to *schema.Table) ([]schema.Change, error) {
 	return append(changes, sqlx.CheckDiff(from, to, func(c1, c2 *schema.Check) bool {
 		return sqlx.Has(c1.Attrs, &NoInherit{}) == sqlx.Has(c2.Attrs, &NoInherit{})
 	})...), nil
+}
+
+func (d *diff) ViewAttrChanged(_, _ *schema.View) bool {
+	return false // Not implemented.
 }
 
 // ColumnChange returns the schema changes (if any) for migrating one column to the other.

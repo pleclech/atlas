@@ -85,6 +85,12 @@ func (s *state) plan(changes []schema.Change) error {
 	)
 	for _, c := range planned {
 		switch c := c.(type) {
+		case *schema.AddFunction:
+			err = s.addFunction(c)
+		case *schema.DropFunction:
+			s.dropFunction(c)
+		case *schema.ModifyFunction:
+			err = s.modifyFunction(c)
 		case *schema.AddTable:
 			err = s.addTable(c)
 		case *schema.ModifyTable:
@@ -95,6 +101,12 @@ func (s *state) plan(changes []schema.Change) error {
 			views = append(views, c)
 		case *schema.DropTable:
 			dropT = append(dropT, c)
+		case *schema.AddTrigger:
+			err = s.addTrigger(c)
+		case *schema.DropTrigger:
+			s.dropTrigger(c)
+		case *schema.ModifyTrigger:
+			err = s.modifyTrigger(c)
 		case *schema.DropObject:
 			dropO = append(dropO, c)
 		default:
@@ -117,6 +129,9 @@ func (s *state) plan(changes []schema.Change) error {
 			err = s.modifyView(c)
 		case *schema.RenameView:
 			s.renameView(c)
+		}
+		if err != nil {
+			return err
 		}
 	}
 	for _, c := range dropT {
@@ -230,6 +245,156 @@ func (s *state) topLevel(changes []schema.Change) ([]schema.Change, error) {
 		}
 	}
 	return planned, nil
+}
+
+func (s *state) functionComment(f *schema.Function, to, from string) *migrate.Change {
+	b := s.Build("COMMENT ON FUNCTION").Function(f).P("IS")
+	return &migrate.Change{
+		Cmd:     b.Clone().P(quote(to)).String(),
+		Comment: fmt.Sprintf("set comment to function: %q", f.Name),
+		Reverse: b.Clone().P(quote(from)).String(),
+	}
+}
+
+func (s *state) addFunctionComments(f *schema.Function) {
+	var c schema.Comment
+	if sqlx.Has(f.Attrs, &c) && c.Text != "" {
+		s.append(s.functionComment(f, c.Text, ""))
+	}
+}
+
+// addFunction builds and executes the query for creating a function in a schema.
+func (s *state) addFunction(add *schema.AddFunction) error {
+	var (
+		b = s.Build("CREATE FUNCTION").Function(add.F).FunctionDefinition(add.F)
+	)
+
+	s.append(&migrate.Change{
+		Cmd:     b.String(),
+		Source:  add,
+		Comment: fmt.Sprintf("create %q function", add.F.Name),
+		Reverse: s.Build("DROP FUNCTION").Function(add.F).String(),
+	})
+
+	s.addFunctionComments(add.F)
+	return nil
+}
+
+// dropFunction builds and executes the query for dropping a table from a schema.
+func (s *state) dropFunction(drop *schema.DropFunction) {
+	b := s.Build("DROP FUNCTION")
+	if sqlx.Has(drop.Extra, &schema.IfExists{}) {
+		b.P("IF EXISTS")
+	}
+	b.Function(drop.F)
+	s.append(&migrate.Change{
+		Cmd:     b.String(),
+		Source:  drop,
+		Comment: fmt.Sprintf("drop %q function", drop.F.Name),
+	})
+}
+
+// modifyFunction builds the statements that bring the function into its modified state.
+func (s *state) modifyFunction(modify *schema.ModifyFunction) error {
+	for _, change := range modify.Changes {
+		switch change := change.(type) {
+		case *schema.DropFunction:
+			s.dropFunction(change)
+		case *schema.AddAttr, *schema.ModifyAttr:
+			from, to, err := commentChange(change)
+			if err != nil {
+				return err
+			}
+			s.append(s.functionComment(modify.F, to, from))
+		case *schema.ModifyFunctionDefinition:
+			var (
+				b = s.Build("CREATE OR REPLACE FUNCTION").Function(change.To).FunctionDefinition(change.To)
+			)
+
+			s.append(&migrate.Change{
+				Cmd:     b.String(),
+				Source:  change,
+				Comment: fmt.Sprintf("create %q function", modify.F.Name),
+				Reverse: s.Build("CREATE OR REPLACE FUNCTION").Function(change.From).FunctionDefinition(change.From).String(),
+			})
+		}
+	}
+	return nil
+}
+
+func (s *state) triggerComment(tg *schema.Trigger, to, from string) *migrate.Change {
+	b := s.Build("COMMENT ON TRIGGER").Trigger(tg).P("ON").Table(tg.Table).P("IS")
+	return &migrate.Change{
+		Cmd:     b.Clone().P(quote(to)).String(),
+		Comment: fmt.Sprintf("set comment to trigger: %q", tg.Name),
+		Reverse: b.Clone().P(quote(from)).String(),
+	}
+}
+
+func (s *state) addTriggerComments(tg *schema.Trigger) {
+	var c schema.Comment
+	if sqlx.Has(tg.Attrs, &c) && c.Text != "" {
+		s.append(s.triggerComment(tg, c.Text, ""))
+	}
+}
+
+// addFunction builds and executes the query for creating a trigger in a schema.
+func (s *state) addTrigger(add *schema.AddTrigger) error {
+	var (
+		b = s.Build("CREATE TRIGGER").Trigger(add.TG).TriggerDefinition(add.TG)
+	)
+
+	s.append(&migrate.Change{
+		Cmd:     b.String(),
+		Source:  add,
+		Comment: fmt.Sprintf("create %q trigger", add.TG.Name),
+		Reverse: s.Build("DROP TRIGGER").Trigger(add.TG).P("ON").Table(add.TG.Table).String(),
+	})
+
+	s.addTriggerComments(add.TG)
+	return nil
+}
+
+// dropFunction builds and executes the query for dropping a table from a schema.
+func (s *state) dropTrigger(drop *schema.DropTrigger) {
+	b := s.Build("DROP TRIGGER")
+	if sqlx.Has(drop.Extra, &schema.IfExists{}) {
+		b.P("IF EXISTS")
+	}
+	b.Trigger(drop.TG).P("ON").Table(drop.TG.Table)
+	s.append(&migrate.Change{
+		Cmd:     b.String(),
+		Source:  drop,
+		Comment: fmt.Sprintf("drop %q trigger", drop.TG.Name),
+	})
+}
+
+// modifyTrigger builds the statements that bring the trigger into its modified state.
+func (s *state) modifyTrigger(modify *schema.ModifyTrigger) error {
+	for _, change := range modify.Changes {
+		switch change := change.(type) {
+		case *schema.DropTrigger:
+			s.dropTrigger(change)
+		case *schema.AddAttr, *schema.ModifyAttr:
+			from, to, err := commentChange(change)
+			if err != nil {
+				return err
+			}
+			s.append(s.triggerComment(modify.TG, to, from))
+		case *schema.ModifyTriggerDefinition:
+			var (
+				b = s.Build("CREATE OR REPLACE TRIGGER").Trigger(change.To).TriggerDefinition(change.To)
+			)
+
+			s.append(&migrate.Change{
+				Cmd:     b.String(),
+				Source:  change,
+				Comment: fmt.Sprintf("create %q trigger", modify.TG.Name),
+				Reverse: s.Build("CREATE OR REPLACE TRIGGER").Trigger(change.From).TriggerDefinition(change.From).String(),
+			})
+		}
+	}
+	return nil
 }
 
 // addTable builds and executes the query for creating a table in a schema.
@@ -353,7 +518,11 @@ func (s *state) modifyTable(modify *schema.ModifyTable) error {
 			if c := (schema.Comment{}); sqlx.Has(change.I.Attrs, &c) {
 				changes = append(changes, s.indexComment(modify.T, change.I, c.Text, ""))
 			}
-			addI = append(addI, change)
+			if isUniqueConstraint(change.I) {
+				alter = append(alter, change)
+			} else {
+				addI = append(addI, change)
+			}
 		case *schema.DropIndex:
 			// Unlike DROP INDEX statements that are executed separately,
 			// DROP CONSTRAINT are added to the ALTER TABLE statement below.
@@ -487,7 +656,18 @@ func (s *state) alterTable(t *schema.Table, changes []schema.Change) error {
 			case *schema.AddIndex:
 				// Skip reversing this operation as it is the inverse of
 				// the operation above and should not be used besides this.
-				b.P("ADD CONSTRAINT").Ident(change.I.Name).P("UNIQUE")
+				if change.I.Constrained {
+					b.P("ADD CONSTRAINT")
+				} else {
+					b.P("ADD INDEX")
+				}
+				b.Ident(change.I.Name)
+				if change.I.Unique {
+					b.P("UNIQUE")
+				}
+				if change.I.NullsNotDistinct {
+					b.P("NULLS NOT DISTINCT")
+				}
 				if err := s.indexParts(b, change.I); err != nil {
 					return err
 				}
@@ -800,9 +980,14 @@ func (s *state) dropIndexes(t *schema.Table, drops ...*schema.DropIndex) error {
 		return err
 	}
 	for i, add := range adds {
+		idx := add.I
+		sType := "index"
+		if idx.Constrained {
+			sType = "constraint"
+		}
 		s.append(&migrate.Change{
 			Cmd:     rs.Changes[i].Reverse.(string),
-			Comment: fmt.Sprintf("drop index %q from table: %q", add.I.Name, t.Name),
+			Comment: fmt.Sprintf("drop %s %q from table: %q", sType, idx.Name, t.Name),
 			Reverse: rs.Changes[i].Cmd,
 		})
 	}
@@ -833,9 +1018,39 @@ func (s *state) alterEnum(modify *schema.ModifyObject) error {
 	return nil
 }
 
+func (s *state) addContraint(t *schema.Table, idx *schema.Index) {
+	b := s.Build("ALTER TABLE")
+	b.Table(t)
+	b.P("ADD CONSTRAINT")
+	if idx.Name != "" {
+		b.Ident(idx.Name)
+	}
+	b.P("UNIQUE")
+	if idx.NullsNotDistinct {
+		b.P("NULLS NOT DISTINCT")
+	}
+	s.index(b, idx)
+	s.append(&migrate.Change{
+		Cmd:     b.String(),
+		Comment: fmt.Sprintf("create constraint %q to table: %q", idx.Name, t.Name),
+		Reverse: func() string {
+			b := s.Build("ALTER TABLE")
+			b.Table(t)
+			b.P("DROP CONSTRAINT")
+			b.Ident(idx.Name)
+			return b.String()
+		}(),
+	})
+}
+
 func (s *state) addIndexes(t *schema.Table, adds ...*schema.AddIndex) error {
 	for _, add := range adds {
-		b, idx := s.Build("CREATE"), add.I
+		idx := add.I
+		if idx.Constrained {
+			s.addContraint(t, idx)
+			continue
+		}
+		b := s.Build("CREATE")
 		if idx.Unique {
 			b.P("UNIQUE")
 		}
@@ -849,6 +1064,9 @@ func (s *state) addIndexes(t *schema.Table, adds ...*schema.AddIndex) error {
 		b.P("ON").Table(t)
 		if err := s.index(b, idx); err != nil {
 			return err
+		}
+		if idx.NullsNotDistinct {
+			b.P("NULLS NOT DISTINCT")
 		}
 		s.append(&migrate.Change{
 			Cmd:     b.String(),
