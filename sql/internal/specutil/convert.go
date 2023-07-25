@@ -92,27 +92,6 @@ func Scan(r *schema.Realm, doc *ScanDoc, funcs *ScanFuncs) error {
 		s.AddFunctions(t)
 	}
 
-	for _, stg := range doc.Triggers {
-		tmp, err := QualifiedTableName(stg.On)
-		if err != nil {
-			return fmt.Errorf("specutil: cannot extract schema name for triger %q: %w", stg.Name, err)
-		}
-		name := tmp[0]
-		s, ok := byName[name]
-		if !ok {
-			return fmt.Errorf("specutil: schema %q not found for trigger %q", name, stg.Name)
-		}
-		tbl, ok := s.Table(tmp[1])
-		if !ok {
-			return fmt.Errorf("specutil: can't find table %q into schema %q for trigger %q", tmp[1], name, stg.Name)
-		}
-		trg, err := funcs.Trigger(stg, tbl)
-		if err != nil {
-			return err
-		}
-		s.AddTriggers(trg)
-	}
-
 	tableFKs := make(map[*schema.Table][]*sqlspec.ForeignKey)
 	for _, st := range doc.Tables {
 		name, err := SchemaName(st.Schema)
@@ -194,6 +173,28 @@ func Scan(r *schema.Realm, doc *ScanDoc, funcs *ScanFuncs) error {
 			}
 		}
 	}
+
+	for _, stg := range doc.Triggers {
+		tmp, err := QualifiedTableName(stg.On)
+		if err != nil {
+			return fmt.Errorf("specutil: cannot extract schema name for triger %q: %w", stg.Name, err)
+		}
+		name := tmp[0]
+		s, ok := byName[name]
+		if !ok {
+			return fmt.Errorf("specutil: schema %q not found for trigger %q", name, stg.Name)
+		}
+		tbl, ok := s.Table(tmp[1])
+		if !ok {
+			return fmt.Errorf("specutil: can't find table %q into schema %q for trigger %q", tmp[1], name, stg.Name)
+		}
+		trg, err := funcs.Trigger(stg, tbl)
+		if err != nil {
+			return err
+		}
+		s.AddTriggers(trg)
+	}
+
 	return nil
 }
 
@@ -493,14 +494,6 @@ func FromSchema(s *schema.Schema, specT TableSpecFunc, specV ViewSpecFunc, specF
 		functions = append(functions, function)
 	}
 
-	for _, tg := range s.Triggers {
-		trigger, err := specTg(tg)
-		if err != nil {
-			return nil, err
-		}
-		triggers = append(triggers, trigger)
-	}
-
 	for _, t := range s.Tables {
 		table, err := specT(t)
 		if err != nil {
@@ -521,6 +514,15 @@ func FromSchema(s *schema.Schema, specT TableSpecFunc, specV ViewSpecFunc, specF
 		}
 		views = append(views, view)
 	}
+
+	for _, tg := range s.Triggers {
+		trigger, err := specTg(tg)
+		if err != nil {
+			return nil, err
+		}
+		triggers = append(triggers, trigger)
+	}
+
 	convertCommentFromSchema(s.Attrs, &spec.Extra.Attrs)
 	return &SchemaSpec{
 		Schema:    spec,
