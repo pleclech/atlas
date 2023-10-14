@@ -53,6 +53,11 @@ type (
 		Deps    []Object // Tables and views used in view definition.
 	}
 
+	TableOrView struct {
+		Table *Table
+		View  *View
+	}
+
 	// A Column represents a column definition.
 	Column struct {
 		Name    string
@@ -119,13 +124,13 @@ type (
 	}
 
 	Trigger struct {
-		Table   *Table
-		Name    string
-		Type    string
-		Event   string
-		ForEach string
-		Execute *Function
-		Attrs   []Attr
+		TableOrView *TableOrView
+		Name        string
+		Type        string
+		Event       string
+		ForEach     string
+		Execute     *Function
+		Attrs       []Attr
 	}
 )
 
@@ -159,8 +164,8 @@ func (s *Schema) Trigger(name string) (*Trigger, bool) {
 	return nil, false
 }
 
-func (s *Schema) AddTrigger(tg *Trigger, t *Table) {
-	tg.Table = t
+func (s *Schema) AddTrigger(tg *Trigger, tv *TableOrView) {
+	tg.TableOrView = tv
 	s.Triggers = append(s.Triggers, tg)
 }
 

@@ -112,7 +112,8 @@ func DetachCycles(changes []schema.Change) ([]schema.Change, error) {
 	for _, change := range changes {
 		switch change.(type) {
 		case *schema.AddFunction, *schema.DropFunction, *schema.ModifyFunction:
-			first = append(first, change)
+			//first = append(first, change)
+			last = append(last, change)
 		case *schema.AddTrigger, *schema.DropTrigger, *schema.ModifyTrigger:
 			last = append(last, change)
 		default:
@@ -313,11 +314,23 @@ func table(change schema.Change) (t string) {
 	case *schema.ModifyTable:
 		t = change.T.Name
 	case *schema.AddTrigger:
-		t = change.TG.Table.Name
+		if change.TG.TableOrView.Table != nil {
+			t = change.TG.TableOrView.Table.Name
+		} else {
+			t = change.TG.TableOrView.View.Name
+		}
 	case *schema.DropTrigger:
-		t = change.TG.Table.Name
+		if change.TG.TableOrView.Table != nil {
+			t = change.TG.TableOrView.Table.Name
+		} else {
+			t = change.TG.TableOrView.View.Name
+		}
 	case *schema.ModifyTrigger:
-		t = change.TG.Table.Name
+		if change.TG.TableOrView.Table != nil {
+			t = change.TG.TableOrView.Table.Name
+		} else {
+			t = change.TG.TableOrView.View.Name
+		}
 	}
 	return
 }

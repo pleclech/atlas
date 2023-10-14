@@ -218,10 +218,10 @@ func (d *Driver) Snapshot(ctx context.Context) (migrate.RestoreFunc, error) {
 	if len(realm.Schemas) == 0 {
 		return restore, nil
 	}
-	if s, ok := realm.Schema("public"); len(realm.Schemas) == 1 && ok {
-		if len(s.Tables) > 0 {
-			return nil, &migrate.NotCleanError{Reason: fmt.Sprintf("found table %q in schema %q", s.Tables[0].Name, s.Name)}
-		}
+	if _, ok := realm.Schema("public"); len(realm.Schemas) == 1 && ok {
+		// if len(s.Tables) > 0 {
+		// 	return nil, &migrate.NotCleanError{Reason: fmt.Sprintf("found table %q in schema %q", s.Tables[0].Name, s.Name)}
+		// }
 		return restore, nil
 	}
 	return nil, &migrate.NotCleanError{Reason: fmt.Sprintf("found schema %q", realm.Schemas[0].Name)}
@@ -260,7 +260,7 @@ func (d *Driver) CheckClean(ctx context.Context, revT *migrate.TableIdent) error
 	}
 	for _, s := range r.Schemas {
 		switch {
-		case len(s.Tables) == 0 && s.Name == "public":
+		case /*len(s.Tables) == 0 &&*/ s.Name == "public":
 		case len(s.Tables) == 0 || s.Name != revT.Schema:
 			return &migrate.NotCleanError{Reason: fmt.Sprintf("found schema %q", s.Name)}
 		case len(s.Tables) > 1:

@@ -41,7 +41,7 @@ type (
 	ConvertFunctionFunc func(*sqlspec.Function, *schema.Schema) (*schema.Function, error)
 	FunctionSpecFunc    func(*schema.Function) (*sqlspec.Function, error)
 
-	ConvertTriggerFunc func(*sqlspec.Trigger, *schema.Table) (*schema.Trigger, error)
+	ConvertTriggerFunc func(*sqlspec.Trigger, *schema.TableOrView) (*schema.Trigger, error)
 	TriggerSpecFunc    func(*schema.Trigger) (*sqlspec.Trigger, error)
 )
 
@@ -184,11 +184,22 @@ func Scan(r *schema.Realm, doc *ScanDoc, funcs *ScanFuncs) error {
 		if !ok {
 			return fmt.Errorf("specutil: schema %q not found for trigger %q", name, stg.Name)
 		}
+
+		tv := schema.TableOrView{}
+
 		tbl, ok := s.Table(tmp[1])
 		if !ok {
-			return fmt.Errorf("specutil: can't find table %q into schema %q for trigger %q", tmp[1], name, stg.Name)
+			vw, ok := s.View(tmp[1])
+			if !ok {
+				return fmt.Errorf("specutil: can't find table or view %q into schema %q for trigger %q", tmp[1], name, stg.Name)
+			}
+			tv.View = vw
+		} else {
+			tv.Table = tbl
 		}
-		trg, err := funcs.Trigger(stg, tbl)
+
+		trg, err := funcs.Trigger(stg, &tv)
+
 		if err != nil {
 			return err
 		}
@@ -199,13 +210,22 @@ func Scan(r *schema.Realm, doc *ScanDoc, funcs *ScanFuncs) error {
 }
 
 func Function(spec *sqlspec.Function, parent *schema.Schema) (*schema.Function, error) {
+	as, ok := spec.Extra.Attr("as")
+	if !ok {
+		return nil, fmt.Errorf("specutil: missing 'as' definition for function %q", spec.Name)
+	}
+	def, err := as.String()
+	if err != nil {
+		return nil, fmt.Errorf("specutil: expect string definition for attribute function.%s.as: %w", spec.Name, err)
+	}
+
 	fn := &schema.Function{
 		Name:       spec.Name,
 		Schema:     parent,
 		Args:       spec.Args,
 		Returns:    spec.Returns,
 		Language:   spec.Language,
-		Definition: spec.Definition,
+		Definition: def,
 	}
 
 	if err := convertCommentFromSpec(spec, &fn.Attrs); err != nil {
@@ -214,19 +234,25 @@ func Function(spec *sqlspec.Function, parent *schema.Schema) (*schema.Function, 
 	return fn, nil
 }
 
-func Trigger(spec *sqlspec.Trigger, parent *schema.Table) (*schema.Trigger, error) {
-	fn, err := FunctionByRef(parent.Schema.Realm, spec.Execute)
+func Trigger(spec *sqlspec.Trigger, parent *schema.TableOrView) (*schema.Trigger, error) {
+	var schma *schema.Schema
+	if parent.Table != nil {
+		schma = parent.Table.Schema
+	} else {
+		schma = parent.View.Schema
+	}
+	fn, err := FunctionByRef(schma.Realm, spec.Execute)
 	if err != nil {
 		return nil, err
 	}
 
 	tg := &schema.Trigger{
-		Table:   parent,
-		Name:    spec.Name,
-		Type:    spec.Type,
-		Event:   spec.Event,
-		ForEach: spec.ForEach,
-		Execute: fn,
+		TableOrView: parent,
+		Name:        spec.Name,
+		Type:        spec.Type,
+		Event:       spec.Event,
+		ForEach:     spec.ForEach,
+		Execute:     fn,
 	}
 
 	if err := convertCommentFromSpec(spec, &tg.Attrs); err != nil {
@@ -535,12 +561,25 @@ func FromSchema(s *schema.Schema, specT TableSpecFunc, specV ViewSpecFunc, specF
 
 // FromFunction converts a schema.Function to a sqlspec.Function.
 func FromFunction(f *schema.Function) (*sqlspec.Function, error) {
+	as := f.Definition
+	// In case the view definition is multi-line,
+	// format it as indented heredoc with two spaces.
+	if lines := strings.Split(as, "\n"); len(lines) > 1 {
+		as = fmt.Sprintf("<<-SQL\n  %s\n  SQL", strings.Join(lines, "\n  "))
+	}
+
+	embed := &schemahcl.Resource{
+		Attrs: []*schemahcl.Attr{
+			schemahcl.StringAttr("as", as),
+		},
+	}
+
 	spec := &sqlspec.Function{
-		Name:       f.Name,
-		Args:       f.Args,
-		Returns:    f.Returns,
-		Language:   f.Language,
-		Definition: f.Definition,
+		Name:     f.Name,
+		Args:     f.Args,
+		Returns:  f.Returns,
+		Language: f.Language,
+		// Definition: f.Definition,
 	}
 
 	if f.Schema != nil {
@@ -548,14 +587,29 @@ func FromFunction(f *schema.Function) (*sqlspec.Function, error) {
 		spec.Qualifier = f.Schema.Name
 	}
 
-	convertCommentFromSchema(f.Attrs, &spec.Extra.Attrs)
+	convertCommentFromSchema(f.Attrs, &embed.Attrs)
+	spec.Extra.Children = append(spec.Extra.Children, embed)
+
+	// convertCommentFromSchema(f.Attrs, &spec.Extra.Attrs)
 	return spec, nil
 }
 
 // FromTrigger converts a schema.Trigger to a sqlspec.Trigger.
 func FromTrigger(tg *schema.Trigger) (*sqlspec.Trigger, error) {
+	var schma *schema.Schema
+	var name string
+	var on *schemahcl.Ref
+	if tg.TableOrView.Table != nil {
+		schma = tg.TableOrView.Table.Schema
+		name = tg.TableOrView.Table.Name
+		on = QualifiedTableRef(schma.Name, name)
+	} else {
+		schma = tg.TableOrView.View.Schema
+		name = tg.TableOrView.View.Name
+		on = QualifiedViewRef(schma.Name, name)
+	}
 	spec := &sqlspec.Trigger{
-		On:      QualifiedTableRef(tg.Table.Schema.Name, tg.Table.Name),
+		On:      on,
 		Name:    tg.Name,
 		Type:    tg.Type,
 		Event:   tg.Event,
@@ -892,8 +946,8 @@ func QualifiedTableName(ref *schemahcl.Ref) ([]string, error) {
 		return nil, errors.New("missing 'table' attribute")
 	}
 	parts := strings.Split(ref.V, ".")
-	if len(parts) != 3 || parts[0] != "$table" {
-		return nil, errors.New("expected ref format of $table.schema.ident")
+	if len(parts) != 3 || (parts[0] != "$table" && parts[0] != "$view") {
+		return nil, errors.New("expected ref format of $table.schema.ident or $view.schema.ident")
 	}
 	return parts[1:], nil
 }
@@ -904,6 +958,10 @@ func FunctionRef(schemaName, funcName string) *schemahcl.Ref {
 
 func QualifiedTableRef(schema string, tableName string) *schemahcl.Ref {
 	return &schemahcl.Ref{V: "$table." + schema + "." + tableName}
+}
+
+func QualifiedViewRef(schema string, viewName string) *schemahcl.Ref {
+	return &schemahcl.Ref{V: "$view." + schema + "." + viewName}
 }
 
 func FunctionByRef(realm *schema.Realm, ref *schemahcl.Ref) (*schema.Function, error) {

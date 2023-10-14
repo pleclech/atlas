@@ -257,7 +257,7 @@ func (i *inspect) addColumn(s *schema.Schema, rows *sql.Rows) error {
 	}
 	t, ok := s.Table(table.String)
 	if !ok {
-		return fmt.Errorf("table %q was not found in schema", table.String)
+		return fmt.Errorf("(addColumn)table %q was not found in schema", table.String)
 	}
 	c := &schema.Column{
 		Name: name.String,
@@ -354,7 +354,7 @@ func (i *inspect) addIndexes(s *schema.Schema, rows *sql.Rows) error {
 		}
 		t, ok := s.Table(table)
 		if !ok {
-			return fmt.Errorf("table %q was not found in schema", table)
+			return fmt.Errorf("(addIndexes)table %q was not found in schema", table)
 		}
 		// Ignore primary keys.
 		if name == "PRIMARY" {
@@ -443,7 +443,7 @@ func (i *inspect) checks(ctx context.Context, s *schema.Schema) error {
 		}
 		t, ok := s.Table(table.String)
 		if !ok {
-			return fmt.Errorf("table %q was not found in schema", table.String)
+			return fmt.Errorf("(checks)table %q was not found in schema", table.String)
 		}
 		check := &schema.Check{
 			Name: name.String,

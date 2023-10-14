@@ -255,7 +255,7 @@ func (b *Builder) FunctionDefinition(f *schema.Function) *Builder {
 	b.WriteString(f.Returns)
 	b.WriteString("\n LANGUAGE ")
 	b.WriteString(f.Language)
-	b.WriteString("\n ")
+	b.WriteString("\nAS\n")
 	b.WriteString(f.Definition)
 	return b
 }
@@ -288,7 +288,8 @@ func (b *Builder) Trigger(tg *schema.Trigger) *Builder {
 }
 
 func (b *Builder) TriggerDefinition(tg *schema.Trigger) *Builder {
-	b.P(tg.Type).P(tg.Event).P("ON").Table(tg.Table).P("FOR EACH").P(tg.ForEach).P("EXECUTE FUNCTION").Function(tg.Execute)
+	// TODO: check if view trigger is ok
+	b.P(tg.Type).P(tg.Event).P("ON").TableOrView(tg.TableOrView).P("FOR EACH").P(tg.ForEach).P("EXECUTE FUNCTION").Function(tg.Execute)
 	return b
 }
 
@@ -302,6 +303,13 @@ func (b *Builder) View(v *schema.View) *Builder {
 // with the schema name if exists.
 func (b *Builder) Table(t *schema.Table) *Builder {
 	return b.mayQualify(t.Schema, t.Name)
+}
+
+func (b *Builder) TableOrView(t *schema.TableOrView) *Builder {
+	if t.Table != nil {
+		return b.mayQualify(t.Table.Schema, t.Table.Name)
+	}
+	return b.mayQualify(t.View.Schema, t.View.Name)
 }
 
 // TableResource writes the table's resource identifier to the builder, prefixed

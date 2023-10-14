@@ -94,13 +94,13 @@ type (
 	}
 
 	Function struct {
-		Name       string         `spec:",name"`
-		Qualifier  string         `spec:",qualifier"`
-		Schema     *schemahcl.Ref `spec:"schema"`
-		Args       string         `spec:"args"`
-		Returns    string         `spec:"returns"`
-		Language   string         `spec:"language"`
-		Definition string         `spec:"definition"`
+		Name      string         `spec:",name"`
+		Qualifier string         `spec:",qualifier"`
+		Schema    *schemahcl.Ref `spec:"schema"`
+		Args      string         `spec:"args"`
+		Returns   string         `spec:"returns"`
+		Language  string         `spec:"language"`
+		// Definition string         `spec:"definition"`
 		schemahcl.DefaultExtension
 	}
 

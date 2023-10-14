@@ -169,7 +169,7 @@ func convertFunction(spec *sqlspec.Function, parent *schema.Schema) (*schema.Fun
 	return specutil.Function(spec, parent)
 }
 
-func convertTrigger(spec *sqlspec.Trigger, parent *schema.Table) (*schema.Trigger, error) {
+func convertTrigger(spec *sqlspec.Trigger, parent *schema.TableOrView) (*schema.Trigger, error) {
 	return specutil.Trigger(spec, parent)
 }
 

@@ -152,6 +152,9 @@ func (i *inspect) functions(ctx context.Context, realm *schema.Realm, opts *sche
 		}
 
 		def = strings.Trim(def[langIndex+len(lang):], "\n ")
+		if strings.HasPrefix(def, "AS") {
+			def = strings.Trim(def[2:], " ")
+		}
 
 		f := &schema.Function{Name: name.String, Args: args.String, Returns: returns.String, Language: language.String, Definition: def}
 		s.AddFunctions(f)
@@ -199,9 +202,18 @@ func (i *inspect) triggers(ctx context.Context, realm *schema.Realm, opts *schem
 			return fmt.Errorf("schema %q was not found in realm", tSchema.String)
 		}
 
+		tv := schema.TableOrView{}
+
 		t, ok := s.Table(relation.String)
 		if !ok {
-			return fmt.Errorf("table %q not found in schema %q", relation.String, tSchema.String)
+			// check if it's a view
+			v, ok := s.View(relation.String)
+			if !ok {
+				return fmt.Errorf("table or view %q not found in schema %q", relation.String, tSchema.String)
+			}
+			tv.View = v
+		} else {
+			tv.Table = t
 		}
 
 		tmp := strings.Split(fn_name.String, ".")
@@ -213,13 +225,15 @@ func (i *inspect) triggers(ctx context.Context, realm *schema.Realm, opts *schem
 		if !ok {
 			return fmt.Errorf("can't find schema %q in realm for function %q", tmp[0], tmp[1])
 		}
+
 		fn, ok := fnSchema.Function(tmp[1], "")
 		if !ok {
 			return fmt.Errorf("can't find function %s in schema %q", tmp[1], tmp[0])
 		}
 
 		tg := &schema.Trigger{Name: name.String, Type: tg_type.String, Event: event.String, ForEach: level.String, Execute: fn}
-		s.AddTrigger(tg, t)
+		s.AddTrigger(tg, &tv)
+
 		if sqlx.ValidString(description) {
 			tg.SetComment(description.String)
 		}
@@ -259,6 +273,54 @@ func (i *inspect) inspectTables(ctx context.Context, r *schema.Realm, opts *sche
 		}
 		if err := i.checks(ctx, s); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (i *inspect) inspectViews(ctx context.Context, r *schema.Realm, opts *schema.InspectOptions) error {
+	if err := i.views(ctx, r, opts); err != nil {
+		return err
+	}
+	return nil // unimplemented.
+}
+
+func (i *inspect) views(ctx context.Context, realm *schema.Realm, opts *schema.InspectOptions) error {
+	var (
+		args  []any
+		query = fmt.Sprintf(viewsQuery, nArgs(0, len(realm.Schemas)))
+	)
+	for _, s := range realm.Schemas {
+		args = append(args, s.Name)
+	}
+	if opts != nil && len(opts.Tables) > 0 {
+		for _, t := range opts.Tables {
+			args = append(args, t)
+		}
+		query = fmt.Sprintf(viewsQueryArgs, nArgs(0, len(realm.Schemas)), nArgs(len(realm.Schemas), len(opts.Tables)))
+	}
+	rows, err := i.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var viewSchema, viewName, viewOwner, viewDef, viewComment, depSchema, depName, depType sql.NullString
+		if err := rows.Scan(&viewSchema, &viewName, &viewOwner, &viewDef, &viewComment, &depSchema, &depName, &depType); err != nil {
+			return fmt.Errorf("scan view information: %w", err)
+		}
+		if !sqlx.ValidString(viewSchema) || !sqlx.ValidString(viewName) {
+			return fmt.Errorf("invalid schema or view name: %q.%q", viewSchema.String, viewName.String)
+		}
+		s, ok := realm.Schema(viewSchema.String)
+		if !ok {
+			return fmt.Errorf("schema %q was not found in realm", viewSchema.String)
+		}
+		// TODO: need dependencies and column ?
+		v := schema.NewView(viewName.String, viewDef.String)
+		s.AddViews(v)
+		if sqlx.ValidString(viewComment) {
+			v.SetComment(viewComment.String)
 		}
 	}
 	return nil
@@ -1285,6 +1347,65 @@ WHERE
 ORDER BY
     nspname`
 
+	viewsQuery = `
+select
+	vtu.view_schema,
+	vtu.view_name,
+	v1.viewowner view_owner,
+	v1.definition view_def,
+	pg_catalog.obj_description((quote_ident(vtu.view_schema)||'.'||quote_ident(vtu.view_name))::regclass, 'pg_class') AS view_comment,
+	vtu.table_schema as dep_schema,
+	vtu.table_name as dep_name,
+	CASE cl.relkind 
+		WHEN 'r' THEN 'TABLE'
+		WHEN 'i' THEN 'INDEX'
+		WHEN 'S' THEN 'SEQUENCE'
+		WHEN 'v' THEN 'VIEW'
+		WHEN 'm' THEN 'MATERIALIZED VIEW'
+		WHEN 'c' THEN 'TYPE'
+		WHEN 't' THEN 'TOAST'
+		WHEN 'f' THEN 'FOREIGN TABLE'
+	END AS dep_type
+from
+	information_schema.view_table_usage vtu 
+	join pg_catalog.pg_class cl on cl.oid = (quote_ident(vtu.table_schema)||'.'||quote_ident(vtu.table_name))::regclass
+	join pg_views v1 on (v1.schemaname=vtu.view_schema and v1.viewname=vtu.view_name)
+where
+	vtu.view_schema IN (%s)
+order by
+	vtu.view_schema, vtu.view_name
+`
+
+	viewsQueryArgs = `
+select
+	vtu.view_schema,
+	vtu.view_name,
+	v1.viewowner view_owner,
+	v1.definition view_def,
+	pg_catalog.obj_description((quote_ident(vtu.view_schema)||'.'||quote_ident(vtu.view_name))::regclass, 'pg_class') AS view_comment,
+	vtu.table_schema as dep_schema,
+	vtu.table_name as dep_name,
+	CASE cl.relkind 
+		WHEN 'r' THEN 'TABLE'
+		WHEN 'i' THEN 'INDEX'
+		WHEN 'S' THEN 'SEQUENCE'
+		WHEN 'v' THEN 'VIEW'
+		WHEN 'm' THEN 'MATERIALIZED VIEW'
+		WHEN 'c' THEN 'TYPE'
+		WHEN 't' THEN 'TOAST'
+		WHEN 'f' THEN 'FOREIGN TABLE'
+	END AS dep_type
+from
+	information_schema.view_table_usage vtu 
+	join pg_catalog.pg_class cl on cl.oid = (quote_ident(vtu.table_schema)||'.'||quote_ident(vtu.table_name))::regclass
+	join pg_views v1 on (v1.schemaname=vtu.view_schema and v1.viewname=vtu.view_name)
+where
+	vtu.view_schema IN (%s)
+	AND vtu.view_name IN (%s)
+order by
+	vtu.view_schema, vtu.view_name
+`
+
 	// Query to list table information.
 	tablesQuery = `
 SELECT
@@ -1308,6 +1429,7 @@ WHERE
 ORDER BY
 	t1.table_schema, t1.table_name
 `
+
 	tablesQueryArgs = `
 SELECT
 	t1.table_schema,

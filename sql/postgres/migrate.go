@@ -79,9 +79,10 @@ func (s *state) plan(changes []schema.Change) error {
 		return err
 	}
 	var (
-		views []schema.Change
-		dropT []*schema.DropTable
-		dropO []*schema.DropObject
+		views    []schema.Change
+		triggers []schema.Change
+		dropT    []*schema.DropTable
+		dropO    []*schema.DropObject
 	)
 	for _, c := range planned {
 		switch c := c.(type) {
@@ -101,12 +102,8 @@ func (s *state) plan(changes []schema.Change) error {
 			views = append(views, c)
 		case *schema.DropTable:
 			dropT = append(dropT, c)
-		case *schema.AddTrigger:
-			err = s.addTrigger(c)
-		case *schema.DropTrigger:
-			s.dropTrigger(c)
-		case *schema.ModifyTrigger:
-			err = s.modifyTrigger(c)
+		case *schema.AddTrigger, *schema.DropTrigger, *schema.ModifyTrigger:
+			triggers = append(triggers, c)
 		case *schema.DropObject:
 			dropO = append(dropO, c)
 		default:
@@ -126,9 +123,24 @@ func (s *state) plan(changes []schema.Change) error {
 		case *schema.DropView:
 			err = s.dropView(c)
 		case *schema.ModifyView:
+			// TODO: implement.
 			err = s.modifyView(c)
 		case *schema.RenameView:
+			// TODO: implement.
 			s.renameView(c)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	for _, c := range triggers {
+		switch c := c.(type) {
+		case *schema.AddTrigger:
+			err = s.addTrigger(c)
+		case *schema.DropTrigger:
+			s.dropTrigger(c)
+		case *schema.ModifyTrigger:
+			err = s.modifyTrigger(c)
 		}
 		if err != nil {
 			return err
@@ -323,7 +335,7 @@ func (s *state) modifyFunction(modify *schema.ModifyFunction) error {
 }
 
 func (s *state) triggerComment(tg *schema.Trigger, to, from string) *migrate.Change {
-	b := s.Build("COMMENT ON TRIGGER").Trigger(tg).P("ON").Table(tg.Table).P("IS")
+	b := s.Build("COMMENT ON TRIGGER").Trigger(tg).P("ON").TableOrView(tg.TableOrView).P("IS")
 	return &migrate.Change{
 		Cmd:     b.Clone().P(quote(to)).String(),
 		Comment: fmt.Sprintf("set comment to trigger: %q", tg.Name),
@@ -348,7 +360,7 @@ func (s *state) addTrigger(add *schema.AddTrigger) error {
 		Cmd:     b.String(),
 		Source:  add,
 		Comment: fmt.Sprintf("create %q trigger", add.TG.Name),
-		Reverse: s.Build("DROP TRIGGER").Trigger(add.TG).P("ON").Table(add.TG.Table).String(),
+		Reverse: s.Build("DROP TRIGGER").Trigger(add.TG).P("ON").TableOrView(add.TG.TableOrView).String(),
 	})
 
 	s.addTriggerComments(add.TG)
@@ -361,7 +373,7 @@ func (s *state) dropTrigger(drop *schema.DropTrigger) {
 	if sqlx.Has(drop.Extra, &schema.IfExists{}) {
 		b.P("IF EXISTS")
 	}
-	b.Trigger(drop.TG).P("ON").Table(drop.TG.Table)
+	b.Trigger(drop.TG).P("ON").TableOrView(drop.TG.TableOrView)
 	s.append(&migrate.Change{
 		Cmd:     b.String(),
 		Source:  drop,
@@ -394,6 +406,25 @@ func (s *state) modifyTrigger(modify *schema.ModifyTrigger) error {
 			})
 		}
 	}
+	return nil
+}
+
+func (s *state) addView(add *schema.AddView) error {
+	var (
+		b = s.Build("CREATE VIEW")
+	)
+	if sqlx.Has(add.Extra, &schema.IfNotExists{}) {
+		b.P("IF NOT EXISTS")
+	}
+	b.View(add.V)
+	b.P("AS").NL().P(add.V.Def)
+	s.append(&migrate.Change{
+		Cmd:     b.String(),
+		Source:  add,
+		Comment: fmt.Sprintf("create %q view", add.V.Name),
+		Reverse: s.Build("DROP VIEW").View(add.V).String(),
+	})
+	s.addViewComments(add.V)
 	return nil
 }
 
@@ -479,6 +510,45 @@ func (s *state) dropTable(drop *schema.DropTable) error {
 		Cmd:     b.String(),
 		Source:  drop,
 		Comment: fmt.Sprintf("drop %q table", drop.T.Name),
+		// The reverse of 'DROP TABLE' might be a multi
+		// statement operation. e.g., table with indexes.
+		Reverse: func() any {
+			cmd := make([]string, len(rs.Changes))
+			for i, c := range rs.Changes {
+				cmd[i] = c.Cmd
+			}
+			if len(cmd) == 1 {
+				return cmd[0]
+			}
+			return cmd
+		}(),
+	}
+	cmd.append(s)
+	return nil
+}
+
+// dropTable builds and executes the query for dropping a table from a schema.
+func (s *state) dropView(drop *schema.DropView) error {
+	cmd := &changeGroup{}
+	rs := &state{
+		conn:        s.conn,
+		PlanOptions: s.PlanOptions,
+	}
+	if err := rs.addView(&schema.AddView{V: drop.V}); err != nil {
+		return fmt.Errorf("calculate reverse for drop view %q: %w", drop.V.Name, err)
+	}
+	b := s.Build("DROP VIEW")
+	if sqlx.Has(drop.Extra, &schema.IfExists{}) {
+		b.P("IF EXISTS")
+	}
+	b.View(drop.V)
+	if sqlx.Has(drop.Extra, &Cascade{}) {
+		b.P("CASCADE")
+	}
+	cmd.main = &migrate.Change{
+		Cmd:     b.String(),
+		Source:  drop,
+		Comment: fmt.Sprintf("drop %q view", drop.V.Name),
 		// The reverse of 'DROP TABLE' might be a multi
 		// statement operation. e.g., table with indexes.
 		Reverse: func() any {
@@ -932,6 +1002,13 @@ func (s *state) addComments(t *schema.Table) {
 	}
 }
 
+func (s *state) addViewComments(v *schema.View) {
+	var c schema.Comment
+	if sqlx.Has(v.Attrs, &c) && c.Text != "" {
+		s.append(s.viewComment(v, c.Text, ""))
+	}
+}
+
 func (s *state) schemaComment(sc *schema.Schema, to, from string) *migrate.Change {
 	b := s.Build("COMMENT ON SCHEMA").Ident(sc.Name).P("IS")
 	return &migrate.Change{
@@ -946,6 +1023,15 @@ func (s *state) tableComment(t *schema.Table, to, from string) *migrate.Change {
 	return &migrate.Change{
 		Cmd:     b.Clone().P(quote(to)).String(),
 		Comment: fmt.Sprintf("set comment to table: %q", t.Name),
+		Reverse: b.Clone().P(quote(from)).String(),
+	}
+}
+
+func (s *state) viewComment(v *schema.View, to, from string) *migrate.Change {
+	b := s.Build("COMMENT ON VIEW").View(v).P("IS")
+	return &migrate.Change{
+		Cmd:     b.Clone().P(quote(to)).String(),
+		Comment: fmt.Sprintf("set comment to view: %q", v.Name),
 		Reverse: b.Clone().P(quote(from)).String(),
 	}
 }
