@@ -262,7 +262,7 @@ func (b *Builder) FunctionDefinition(f *schema.Function) *Builder {
 
 // Function writes the function identifier to the builder, prefixed
 // with the schema name if exists.
-func (b *Builder) Function(f *schema.Function) *Builder {
+func (b *Builder) Function(f *schema.Function, useDefaultArgs bool) *Builder {
 	switch {
 	// Custom qualifier.
 	case b.Schema != nil:
@@ -277,7 +277,13 @@ func (b *Builder) Function(f *schema.Function) *Builder {
 		b.rewriteLastByte('.')
 	}
 
-	b.Ident(f.Name).Wrap(func(b *Builder) { b.P(f.Args) })
+	b.Ident(f.Name).Wrap(func(b *Builder) {
+		if useDefaultArgs {
+			b.P(f.Args)
+		} else {
+			b.P(f.ArgsWithoutDefault)
+		}
+	})
 
 	return b
 }
@@ -289,7 +295,7 @@ func (b *Builder) Trigger(tg *schema.Trigger) *Builder {
 
 func (b *Builder) TriggerDefinition(tg *schema.Trigger) *Builder {
 	// TODO: check if view trigger is ok
-	b.P(tg.Type).P(tg.Event).P("ON").TableOrView(tg.TableOrView).P("FOR EACH").P(tg.ForEach).P("EXECUTE FUNCTION").Function(tg.Execute)
+	b.P(tg.Type).P(tg.Event).P("ON").TableOrView(tg.TableOrView).P("FOR EACH").P(tg.ForEach).P("EXECUTE FUNCTION").Function(tg.Execute, false)
 	return b
 }
 

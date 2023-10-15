@@ -132,8 +132,8 @@ func (i *inspect) functions(ctx context.Context, realm *schema.Realm, opts *sche
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var tSchema, name, comment, args, returns, language, definition sql.NullString
-		if err := rows.Scan(&tSchema, &name, &comment, &args, &returns, &language, &definition); err != nil {
+		var tSchema, name, comment, args, args_wo_default, returns, language, definition sql.NullString
+		if err := rows.Scan(&tSchema, &name, &comment, &args, &args_wo_default, &returns, &language, &definition); err != nil {
 			return fmt.Errorf("scan function information: %w", err)
 		}
 		if !sqlx.ValidString(tSchema) || !sqlx.ValidString(name) {
@@ -156,7 +156,7 @@ func (i *inspect) functions(ctx context.Context, realm *schema.Realm, opts *sche
 			def = strings.Trim(def[2:], " ")
 		}
 
-		f := &schema.Function{Name: name.String, Args: args.String, Returns: returns.String, Language: language.String, Definition: def}
+		f := &schema.Function{Name: name.String, Args: args.String, ArgsWithoutDefault: args_wo_default.String, Returns: returns.String, Language: language.String, Definition: def}
 		s.AddFunctions(f)
 		if sqlx.ValidString(comment) {
 			f.SetComment(comment.String)
@@ -1680,6 +1680,7 @@ const (
 		,proname AS name
 		,d.description
 		,pg_get_function_arguments(p.oid) AS args
+		,pg_get_function_identity_arguments(p.oid) AS args_wo_default
 		,pg_get_function_result(p.oid) AS return
 		,l.lanname as language
 		,pg_get_functiondef(p.oid) as definition

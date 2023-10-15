@@ -260,7 +260,7 @@ func (s *state) topLevel(changes []schema.Change) ([]schema.Change, error) {
 }
 
 func (s *state) functionComment(f *schema.Function, to, from string) *migrate.Change {
-	b := s.Build("COMMENT ON FUNCTION").Function(f).P("IS")
+	b := s.Build("COMMENT ON FUNCTION").Function(f, false).P("IS")
 	return &migrate.Change{
 		Cmd:     b.Clone().P(quote(to)).String(),
 		Comment: fmt.Sprintf("set comment to function: %q", f.Name),
@@ -278,14 +278,14 @@ func (s *state) addFunctionComments(f *schema.Function) {
 // addFunction builds and executes the query for creating a function in a schema.
 func (s *state) addFunction(add *schema.AddFunction) error {
 	var (
-		b = s.Build("CREATE FUNCTION").Function(add.F).FunctionDefinition(add.F)
+		b = s.Build("CREATE FUNCTION").Function(add.F, true).FunctionDefinition(add.F)
 	)
 
 	s.append(&migrate.Change{
 		Cmd:     b.String(),
 		Source:  add,
 		Comment: fmt.Sprintf("create %q function", add.F.Name),
-		Reverse: s.Build("DROP FUNCTION").Function(add.F).String(),
+		Reverse: s.Build("DROP FUNCTION").Function(add.F, false).String(),
 	})
 
 	s.addFunctionComments(add.F)
@@ -298,7 +298,7 @@ func (s *state) dropFunction(drop *schema.DropFunction) {
 	if sqlx.Has(drop.Extra, &schema.IfExists{}) {
 		b.P("IF EXISTS")
 	}
-	b.Function(drop.F)
+	b.Function(drop.F, false)
 	s.append(&migrate.Change{
 		Cmd:     b.String(),
 		Source:  drop,
@@ -320,14 +320,14 @@ func (s *state) modifyFunction(modify *schema.ModifyFunction) error {
 			s.append(s.functionComment(modify.F, to, from))
 		case *schema.ModifyFunctionDefinition:
 			var (
-				b = s.Build("CREATE OR REPLACE FUNCTION").Function(change.To).FunctionDefinition(change.To)
+				b = s.Build("CREATE OR REPLACE FUNCTION").Function(change.To, true).FunctionDefinition(change.To)
 			)
 
 			s.append(&migrate.Change{
 				Cmd:     b.String(),
 				Source:  change,
 				Comment: fmt.Sprintf("create %q function", modify.F.Name),
-				Reverse: s.Build("CREATE OR REPLACE FUNCTION").Function(change.From).FunctionDefinition(change.From).String(),
+				Reverse: s.Build("CREATE OR REPLACE FUNCTION").Function(change.From, true).FunctionDefinition(change.From).String(),
 			})
 		}
 	}

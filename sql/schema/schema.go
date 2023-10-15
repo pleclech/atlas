@@ -114,13 +114,14 @@ type (
 	}
 
 	Function struct {
-		Name       string
-		Schema     *Schema
-		Args       string
-		Returns    string
-		Language   string
-		Definition string
-		Attrs      []Attr
+		Name               string
+		Schema             *Schema
+		Args               string
+		ArgsWithoutDefault string
+		Returns            string
+		Language           string
+		Definition         string
+		Attrs              []Attr
 	}
 
 	Trigger struct {
