@@ -1679,7 +1679,7 @@ const (
 	SELECT n.nspname AS schema
 		,proname AS name
 		,d.description
-		,pg_get_function_identity_arguments(p.oid) AS args
+		,pg_get_function_arguments(p.oid) AS args
 		,pg_get_function_result(p.oid) AS return
 		,l.lanname as language
 		,pg_get_functiondef(p.oid) as definition
