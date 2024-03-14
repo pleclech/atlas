@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -209,9 +210,12 @@ func (i *inspect) triggers(ctx context.Context, realm *schema.Realm, opts *schem
 			// check if it's a view
 			v, ok := s.View(relation.String)
 			if !ok {
-				return fmt.Errorf("table or view %q not found in schema %q", relation.String, tSchema.String)
+				log.Printf("table or view %q not found in schema %q skipping", relation.String, tSchema.String)
+				continue
+				//				return fmt.Errorf("table or view %q not found in schema %q", relation.String, tSchema.String)
+			} else {
+				tv.View = v
 			}
-			tv.View = v
 		} else {
 			tv.Table = t
 		}

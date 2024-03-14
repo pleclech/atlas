@@ -191,7 +191,8 @@ func Scan(r *schema.Realm, doc *ScanDoc, funcs *ScanFuncs) error {
 		if !ok {
 			vw, ok := s.View(tmp[1])
 			if !ok {
-				return fmt.Errorf("specutil: can't find table or view %q into schema %q for trigger %q", tmp[1], name, stg.Name)
+				fmt.Printf("specutil: can't find table or view %q into schema %q for trigger %q, skipping", tmp[1], name, stg.Name)
+				continue
 			}
 			tv.View = vw
 		} else {
