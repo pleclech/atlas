@@ -174,6 +174,10 @@ func (s *state) topLevel(changes []schema.Change) ([]schema.Change, error) {
 	for _, c := range changes {
 		switch c := c.(type) {
 		case *schema.AddSchema:
+			if c.S.Name == "pg_catalog" {
+				continue
+			}
+
 			b := s.Build("CREATE SCHEMA")
 			// Add the 'IF NOT EXISTS' clause if it is explicitly specified, or if the schema name is 'public'.
 			// That is because the 'public' schema is automatically created by PostgreSQL in every new database,
@@ -192,6 +196,9 @@ func (s *state) topLevel(changes []schema.Change) ([]schema.Change, error) {
 				s.append(s.schemaComment(c.S, cm.Text, ""))
 			}
 		case *schema.ModifySchema:
+			if c.S.Name == "pg_catalog" {
+				continue
+			}
 			for i := range c.Changes {
 				switch change := c.Changes[i].(type) {
 				// Add schema attributes to an existing schema only if
@@ -214,6 +221,9 @@ func (s *state) topLevel(changes []schema.Change) ([]schema.Change, error) {
 				}
 			}
 		case *schema.DropSchema:
+			if c.S.Name == "pg_catalog" {
+				continue
+			}
 			b := s.Build("DROP SCHEMA")
 			if sqlx.Has(c.Extra, &schema.IfExists{}) {
 				b.P("IF EXISTS")
@@ -277,6 +287,10 @@ func (s *state) addFunctionComments(f *schema.Function) {
 
 // addFunction builds and executes the query for creating a function in a schema.
 func (s *state) addFunction(add *schema.AddFunction) error {
+	if add.F.Schema.Name == "pg_catalog" {
+		return nil
+	}
+
 	var (
 		b = s.Build("CREATE FUNCTION").Function(add.F, true).FunctionDefinition(add.F)
 	)

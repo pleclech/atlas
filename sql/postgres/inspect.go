@@ -226,12 +226,25 @@ func (i *inspect) triggers(ctx context.Context, realm *schema.Realm, opts *schem
 		}
 
 		fnSchema, ok := realm.Schema(tmp[0])
-		if !ok {
+		if !ok && tmp[0] == "pg_catalog" {
+			fnSchema = &schema.Schema{
+				Name: tmp[0],
+			}
+		}
+
+		if fnSchema == nil {
 			return fmt.Errorf("can't find schema %q in realm for function %q", tmp[0], tmp[1])
 		}
 
 		fn, ok := fnSchema.Function(tmp[1], "")
-		if !ok {
+		if !ok && tmp[0] == "pg_catalog" {
+			fn = &schema.Function{
+				Name:   tmp[1],
+				Schema: fnSchema,
+			}
+		}
+
+		if fn == nil {
 			return fmt.Errorf("can't find function %s in schema %q", tmp[1], tmp[0])
 		}
 

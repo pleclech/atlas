@@ -144,11 +144,17 @@ func stateReaderHCL(ctx context.Context, config *StateReaderConfig, paths []stri
 		for _, s := range config.Schemas {
 			sm[s] = true
 		}
+		realmSchemas := make([]*schema.Schema, 0, len(realm.Schemas))
 		for _, s := range realm.Schemas {
+			if s.Name == "pg_catalog" {
+				continue
+			}
 			if !sm[s.Name] {
 				return nil, fmt.Errorf("schema %q from paths %q is not requested (all schemas in HCL must be requested)", s.Name, paths)
 			}
+			realmSchemas = append(realmSchemas, s)
 		}
+		realm.Schemas = realmSchemas
 	}
 	// In case the dev connection is bound to a specific schema, we require the
 	// desired schema to contain only one schema. Thus, executing diff will be
