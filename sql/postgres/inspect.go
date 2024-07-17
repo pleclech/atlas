@@ -189,8 +189,8 @@ func (i *inspect) triggers(ctx context.Context, realm *schema.Realm, opts *schem
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var tSchema, relation, name, tg_type, event, description, level, fn_name sql.NullString
-		if err := rows.Scan(&tSchema, &relation, &name, &tg_type, &event, &description, &level, &fn_name); err != nil {
+		var tSchema, relation, name, tg_type, event, description, level, fn_name, oldTable, newTable sql.NullString
+		if err := rows.Scan(&tSchema, &relation, &name, &oldTable, &newTable, &tg_type, &event, &description, &level, &fn_name); err != nil {
 			return fmt.Errorf("scan trigger information: %w", err)
 		}
 
@@ -248,7 +248,7 @@ func (i *inspect) triggers(ctx context.Context, realm *schema.Realm, opts *schem
 			return fmt.Errorf("can't find function %s in schema %q", tmp[1], tmp[0])
 		}
 
-		tg := &schema.Trigger{Name: name.String, Type: tg_type.String, Event: event.String, ForEach: level.String, Execute: fn}
+		tg := &schema.Trigger{Name: name.String, Type: tg_type.String, Event: event.String, ForEach: level.String, Execute: fn, OldTable: oldTable.String, NewTable: newTable.String}
 		s.AddTrigger(tg, &tv)
 
 		if sqlx.ValidString(description) {
@@ -1715,6 +1715,8 @@ SELECT
 	ns.nspname as schema,
 	tbl.relname as relation,
 	trg.tgname as name,
+	trg.tgoldtable,
+	trg.tgnewtable,
 	CASE trg.tgtype::INTEGER & 66
 		WHEN 2 THEN 'BEFORE'
 		WHEN 64 THEN 'INSTEAD OF'

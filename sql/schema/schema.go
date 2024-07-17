@@ -130,6 +130,8 @@ type (
 		Type        string
 		Event       string
 		ForEach     string
+		OldTable    string
+		NewTable    string
 		Execute     *Function
 		Attrs       []Attr
 	}

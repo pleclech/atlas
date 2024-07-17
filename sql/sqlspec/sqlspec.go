@@ -105,12 +105,14 @@ type (
 	}
 
 	Trigger struct {
-		On      *schemahcl.Ref `spec:"on"`
-		Name    string         `spec:",name"`
-		Type    string         `spec:"type"`
-		Event   string         `spec:"event"`
-		ForEach string         `spec:"per"`
-		Execute *schemahcl.Ref `spec:"execute"`
+		On       *schemahcl.Ref `spec:"on"`
+		Name     string         `spec:",name"`
+		Type     string         `spec:"type"`
+		Event    string         `spec:"event"`
+		ForEach  string         `spec:"per"`
+		OldTable string         `spec:"old_table"`
+		NewTable string         `spec:"new_table"`
+		Execute  *schemahcl.Ref `spec:"execute"`
 		schemahcl.DefaultExtension
 	}
 

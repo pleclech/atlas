@@ -324,7 +324,7 @@ func (d *Diff) TriggerDiff(from, to *schema.Trigger) ([]schema.Change, error) {
 	}
 	changes = append(changes, change...)
 
-	if from.Event != to.Event || from.Execute.Definition != to.Execute.Definition || from.ForEach != to.ForEach || from.Type != to.Type {
+	if from.Event != to.Event || from.Execute.Definition != to.Execute.Definition || from.ForEach != to.ForEach || from.Type != to.Type || from.OldTable != to.OldTable || from.NewTable != to.NewTable {
 		changes = append(changes, &schema.ModifyTriggerDefinition{
 			From:   from,
 			To:     to,

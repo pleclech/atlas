@@ -295,7 +295,17 @@ func (b *Builder) Trigger(tg *schema.Trigger) *Builder {
 
 func (b *Builder) TriggerDefinition(tg *schema.Trigger) *Builder {
 	// TODO: check if view trigger is ok
-	b.P(tg.Type).P(tg.Event).P("ON").TableOrView(tg.TableOrView).P("FOR EACH").P(tg.ForEach).P("EXECUTE FUNCTION").Function(tg.Execute, false)
+	p := b.P(tg.Type).P(tg.Event).P("ON").TableOrView(tg.TableOrView)
+	if tg.OldTable != "" || tg.NewTable != "" {
+		p = p.P("REFERENCING")
+		if tg.OldTable != "" {
+			p = p.P("OLD TABLE AS").P(tg.OldTable)
+		}
+		if tg.NewTable != "" {
+			p = p.P("NEW TABLE AS").P(tg.NewTable)
+		}
+	}
+	p.P("FOR EACH").P(tg.ForEach).P("EXECUTE FUNCTION").Function(tg.Execute, false)
 	return b
 }
 

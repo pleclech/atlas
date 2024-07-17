@@ -253,6 +253,8 @@ func Trigger(spec *sqlspec.Trigger, parent *schema.TableOrView) (*schema.Trigger
 		Type:        spec.Type,
 		Event:       spec.Event,
 		ForEach:     spec.ForEach,
+		OldTable:    spec.OldTable,
+		NewTable:    spec.NewTable,
 		Execute:     fn,
 	}
 
@@ -610,12 +612,14 @@ func FromTrigger(tg *schema.Trigger) (*sqlspec.Trigger, error) {
 		on = QualifiedViewRef(schma.Name, name)
 	}
 	spec := &sqlspec.Trigger{
-		On:      on,
-		Name:    tg.Name,
-		Type:    tg.Type,
-		Event:   tg.Event,
-		ForEach: tg.ForEach,
-		Execute: FunctionRef(tg.Execute.Schema.Name, tg.Execute.Name),
+		On:       on,
+		Name:     tg.Name,
+		Type:     tg.Type,
+		Event:    tg.Event,
+		ForEach:  tg.ForEach,
+		OldTable: tg.OldTable,
+		NewTable: tg.NewTable,
+		Execute:  FunctionRef(tg.Execute.Schema.Name, tg.Execute.Name),
 	}
 	convertCommentFromSchema(tg.Attrs, &spec.Extra.Attrs)
 	return spec, nil
