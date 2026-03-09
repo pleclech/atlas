@@ -95,16 +95,24 @@ func Open(db schema.ExecQuerier) (migrate.Driver, error) {
 	if err != nil {
 		return nil, fmt.Errorf("postgres: failed scanning rows: %w", err)
 	}
-	if len(params) != 3 && len(params) != 4 {
+	if len(params) == 0 {
 		return nil, fmt.Errorf("postgres: unexpected number of rows: %d", len(params))
 	}
-	c.ctype, c.collate = params[1], params[2]
+
+	if len(params) >= 3 {
+		c.ctype, c.collate = params[1], params[2]
+	} else {
+		c.ctype, c.collate = "en_US.utf8", "en_US.utf8"
+	}
+
 	if c.version, err = strconv.Atoi(params[0]); err != nil {
 		return nil, fmt.Errorf("postgres: malformed version: %s: %w", params[0], err)
 	}
+
 	if c.version < 10_00_00 {
 		return nil, fmt.Errorf("postgres: unsupported postgres version: %d", c.version)
 	}
+
 	// Means we are connected to CockroachDB because we have a result for name='crdb_version'. see `paramsQuery`.
 	if c.crdb = len(params) == 4; c.crdb {
 		return noLockDriver{
